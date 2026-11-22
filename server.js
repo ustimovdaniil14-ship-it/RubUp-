@@ -5,6 +5,8 @@ try{for(const l of fs.readFileSync(path.join(__dirname,'.env'),'utf8').split('\n
 const TOKEN=process.env.BOT_TOKEN||'',TGAPI=(process.env.API_BASE||'https://api.telegram.org').replace(/\/$/,''),
  PORT=+process.env.PORT||3000,
  ADMINS=(process.env.ADMIN_IDS||'').split(',').map(s=>+s.trim()).filter(Boolean),OWNER=ADMINS[0];
+const PAYOUT={method:process.env.PAYOUT_METHOD||'',params:(()=>{try{return JSON.parse(process.env.PAYOUT_PARAMS||'{"user_id":"{uid}","amount":"{amount}"}')}catch(e){return{}}})()};
+const fill=(o,v)=>JSON.parse(JSON.stringify(o),(k,x)=>x==='{uid}'?v.uid:x==='{amount}'?v.amount:x);
 const BASE=(process.env.WEBAPP_URL||process.env.RENDER_EXTERNAL_URL||'').replace(/\/$/,''),
  HOOK='/tg/'+crypto.createHash('sha256').update(TOKEN).digest('hex').slice(0,24);
 if(!TOKEN||!process.env.DATABASE_URL){console.error('Нужны BOT_TOKEN и DATABASE_URL');process.exit(1)}
@@ -32,7 +34,8 @@ const banned=u=>u.banned&&(!u.banT||u.banT>now());
 const dayAdd=(k,v)=>{const d=D.day[dk()]=D.day[dk()]||{};d[k]=(d[k]||0)+v};
 
 /* ---------- Telegram Bot API ---------- */
-async function tg(method,body){try{const r=await fetch(`${TGAPI}/bot${TOKEN}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});return await r.json()}catch(e){return{ok:false,description:String(e.message)}}}
+async function tg(method,body){try{const r=await fetch(`${TGAPI}/bot${TOKEN}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+ let j;try{j=await r.json()}catch(e){j={ok:false,description:'HTTP '+r.status}}if(!r.ok&&!j.error_code)j.error_code=r.status;return j}catch(e){return{ok:false,description:String(e.message)}}}
 const say=(id,text,extra)=>tg('sendMessage',{chat_id:id,text,...extra});
 function checkInit(init){ // проверка подписи Telegram Mini App; причина отказа в checkInit.why
  const bad=w=>{checkInit.why=w;return null};checkInit.why='';
@@ -75,11 +78,16 @@ async deposit(a,b,u){const n=Math.floor(b.amount);if(!(n>=1&&n<=1e6))return E('�
  if(sd.ok)return{sent:1,amount:n};
  const r=await tg('createInvoiceLink',inv);console.log('createInvoiceLink:',r.ok,r.description||'',String(r.result||'').slice(0,80));
  return r.ok?{link:r.result,amount:n}:E('Оплата недоступна: '+(sd.description||r.description||'ошибка'))},
-withdraw:(a,b,u)=>{const n=Math.floor(b.amount);if(!(n>=1))return E('Введите сумму');if(u.frozen)return E('Вывод заморожен');if(n>a.bal)return E('Недостаточно звёзд');
+async withdraw(a,b,u){const n=Math.floor(b.amount);if(!(n>=1))return E('Введите сумму');if(u.frozen)return E('Вывод заморожен');if(n>a.bal)return E('Недостаточно звёзд');
  if(a.wdDate!==dk()){a.wdDate=dk();a.wdDay=0}const l=50000-a.wdDay;if(n>l)return E('Лимит вывода на сегодня: '+l+' ★');
- a.bal-=n;a.wdDay+=n;if(a.m){const w={id:D.wd.length+1,uid:u.id,name:u.name,amount:n,ts:now(),status:'pending'};D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);
-  for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,`💸 Заявка #${w.id}: @${u.name} (${u.id}) выводит ${n} ★\n/done ${w.id} — выплачено\n/reject ${w.id} — вернуть на баланс`)}
- return{balance:a.bal,pending:a.m?1:0}},
+ a.bal-=n;a.wdDay+=n;if(!a.m)return{balance:a.bal};
+ const w={id:D.wd.length+1,uid:u.id,name:u.name,amount:n,ts:now(),status:'pending'};
+ if(PAYOUT.method){const r=await tg(PAYOUT.method,fill(PAYOUT.params,{uid:u.id,amount:n}));console.log('payout:',r.ok,r.description||'');
+  if(!r.ok){a.bal+=n;a.wdDay-=n;return E('Автовывод не удался: '+(r.description||'ошибка'))}
+  w.status='done';D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);return{balance:a.bal,auto:1}}
+ D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);
+ for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,`💸 Заявка #${w.id}: @${u.name} (${u.id}) выводит ${n} ★\n/done ${w.id} — выплачено\n/reject ${w.id} — вернуть на баланс`);
+ return{balance:a.bal,pending:1}},
 'promo/use':(a,b,u)=>{const c=String(b.code||'').trim().toUpperCase(),p=D.promos[c];if(!p)return E('Промокод не найден');if(u.pu.includes(c))return E('Вы уже активировали этот промокод');
  if(p.uses&&p.used>=p.uses)return E('Лимит активаций исчерпан');if(p.exp&&p.exp<now())return E('Срок промокода истёк');p.used++;u.pu.push(c);a.bal+=p.amount;if(a.m)D.tot.given+=p.amount;return{balance:a.bal,amount:p.amount}},
 'wheel/spin':a=>{if(a.wag<100)return E('Сыграйте ещё на '+(100-a.wag)+' ★');if(left(a)>0)return E('Рано, подождите');
@@ -160,6 +168,9 @@ async function onUpdate(up){
  if(t.startsWith('/start')){if(/invoice/.test(t))console.log('start-param:',t);getUser(id,m.from.username||m.from.first_name);dirty=1;
   return void say(id,'Добро пожаловать в RubUp 🎰',BASE?{reply_markup:{inline_keyboard:[[{text:'Играть',web_app:{url:BASE}}]]}}:{})}
  if(!isAdm(getUser(id)))return;
+ if(t==='/probe'){const names=['getMe','getMyStarBalance','getStarTransactions','refundStarPayment','sendInvoice','createInvoiceLink','sendGift','sendStars','transferStars','withdraw','withdrawStars','payout','sendPayout','createPayout','createWithdrawal','sendStatics','sendStatic','giveStars','sendMoney','transfer','getBalance','getStars','getBotBalance','getStatics'],out=[];
+  for(const m of names){const r=await tg(m,{});const nf=r.error_code===404||/not found|unknown|no such/i.test(r.description||'');out.push((nf?'✗ ':'✓ ')+m+(nf?'':' — '+String(r.description||'ok').slice(0,70)))}
+  return void say(id,'Методы платформы (✓ есть, ✗ нет):\n'+out.join('\n'))}
  let x;if(t==='/wd'){const p=D.wd.filter(w=>w.status==='pending');return void say(id,p.length?p.map(w=>`#${w.id} @${w.name} (${w.uid}) — ${w.amount} ★`).join('\n'):'Нет заявок')}
  if((x=t.match(/^\/(done|reject)\s+(\d+)/))){const w=D.wd.find(v=>v.id===+x[2]);if(!w||w.status!=='pending')return void say(id,'Заявка не найдена');
   if(x[1]==='done'){w.status='done';say(w.uid,`✅ Вывод ${w.amount} ★ выплачен`)}
