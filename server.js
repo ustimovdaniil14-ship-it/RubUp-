@@ -7,6 +7,7 @@ const TOKEN=process.env.BOT_TOKEN||'',TGAPI=(()=>{const u=(process.env.API_BASE|
  ADMINS=(process.env.ADMIN_IDS||'').split(',').map(s=>+s.trim()).filter(Boolean),OWNER=ADMINS[0];
 const WMW_=+(process.env.WHEEL_MIN_WAG||0),WCD=Math.round(3600*(+process.env.WHEEL_COOLDOWN_H||24)),MIN_WD=+process.env.MIN_WD||15,WD_LIM=+process.env.WD_LIMIT||35000;
 const PAYOUT={method:process.env.PAYOUT_METHOD||'sendStars',params:(()=>{try{return JSON.parse(process.env.PAYOUT_PARAMS||'{"user_id":"{uid}","amount":"{amount}"}')}catch(e){return{}}})()};
+const alertAdm=t=>{if(now()-(alertAdm.t||0)<3e5)return;alertAdm.t=now();for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,t)};
 const fill=(o,v)=>JSON.parse(JSON.stringify(o),(k,x)=>x==='{uid}'?v.uid:x==='{amount}'?v.amount:x);
 async function giftList(){if(giftList.c&&now()-giftList.t<3e5)return giftList.c;
  const r=await tg('getAvailableGifts',{});const l=(r.ok&&r.result&&r.result.gifts||[]).filter(x=>!x.total_count&&!x.remaining_count).sort((x,y)=>y.star_count-x.star_count);
@@ -106,7 +107,7 @@ async withdraw(a,b,u){const n=Math.floor(b.amount);if(!(n>=1))return E('Введ
   if(have<n){a.bal+=n;a.wdDay-=n;for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,`⚠️ Не хватает звёзд на балансе бота для вывода ${n} ★ (там ${have}). Пополните баланс бота.`);return E('Выплата временно недоступна, попробуйте позже')}
   const r=await tg(PAYOUT.method,fill(PAYOUT.params,{uid:u.id,amount:n}));console.log('payout:',r.ok,r.error_code||'',r.description||'');
   if(r.ok){w.status='done';D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);say(u.id,`✅ Вывод ${n} ★ отправлен на ваш аккаунт`);return{balance:a.bal,auto:1}}
-  if(r.error_code!==404){a.bal+=n;a.wdDay-=n;return E('Автовывод не удался: '+(r.description||'ошибка'))}why=PAYOUT.method+': метод не найден на платформе (404)'}
+  if(r.error_code!==404){a.bal+=n;a.wdDay-=n;alertAdm(`⚠️ ${PAYOUT.method} не сработал: ${r.description||'ошибка'} (код ${r.error_code||'-'})\nПараметры: ${JSON.stringify(fill(PAYOUT.params,{uid:u.id,amount:n}))}\nПодберите их командой /paytest`);return E('Вывод временно недоступен, попробуйте позже')}why=PAYOUT.method+': метод не найден на платформе (404)'}
  D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);
  for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,`💸 Заявка #${w.id}: @${u.name} (${u.id}) выводит ${n} ★\n/done ${w.id} — выплачено\n/reject ${w.id} — вернуть на баланс`+(why?`\n⚠️ Автовывод не сработал: ${why}`:''));
  return{balance:a.bal,pending:1}},
@@ -195,6 +196,12 @@ async function onUpdate(up){
   return void say(id,'Методы платформы (✓ есть, ✗ нет):\n'+out.join('\n'))}
  if(t==='/gifts'){const g=await giftList();return void say(id,g.length?'Подарки (цена ★ — id):\n'+g.map(x=>x.star_count+' — '+x.id).join('\n'):'Подарков нет (или getAvailableGifts не отвечает)')}
   if(t==='/bal'){const r=await tg('getMyStarBalance',{});return void say(id,r.ok?'Баланс бота: '+(r.result&&r.result.amount!=null?r.result.amount:JSON.stringify(r.result))+' ★':'Не удалось: '+(r.description||'ошибка'))}
+ if(t==='/paytest'){const meth=['gifts','manual'].includes(PAYOUT.method)?'sendStars':PAYOUT.method,out=[`Пробую ${meth} (1 ★ вам):`];let okk=0;
+  const V=[{user_id:'{uid}',amount:'{amount}'},{user_id:'{uid}',star_count:'{amount}'},{user_id:'{uid}',stars:'{amount}'},{user_id:'{uid}',count:'{amount}'},{user_id:'{uid}',quantity:'{amount}'},{chat_id:'{uid}',amount:'{amount}'},{chat_id:'{uid}',star_count:'{amount}'}];
+  for(const v of V){const r=await tg(meth,fill(v,{uid:id,amount:1}));out.push((r.ok?'✅ ':'✗ ')+Object.keys(v).join('+')+' → '+(r.ok?'ok':(r.description||r.error_code)));
+   if(r.ok){okk=1;PAYOUT.params=v;D.payoutParams=v;dirty=1;out.push('Рабочие параметры сохранены. 1 ★ отправлена вам.');break}}
+  if(!okk)out.push('Ни один вариант не подошёл. Перешлите это админу платформы и спросите точные параметры '+meth+'.');
+  return void say(id,out.join('\n'))}
  let x;if(t==='/wd'){const p=D.wd.filter(w=>w.status==='pending');return void say(id,p.length?p.map(w=>`#${w.id} @${w.name} (${w.uid}) — ${w.amount} ★`).join('\n'):'Нет заявок')}
  if((x=t.match(/^\/(done|reject)\s+(\d+)/))){const w=D.wd.find(v=>v.id===+x[2]);if(!w||w.status!=='pending')return void say(id,'Заявка не найдена');
   if(x[1]==='done'){w.status='done';say(w.uid,`✅ Вывод ${w.amount} ★ выплачен`)}
@@ -203,7 +210,7 @@ async function onUpdate(up){
 }
 async function poll(){let off=0;for(;;){const r=await tg('getUpdates',{offset:off,timeout:25,allowed_updates:['message','pre_checkout_query']});
  if(!r.ok){await new Promise(x=>setTimeout(x,3000));continue}for(const up of r.result){off=up.update_id+1;try{await onUpdate(up)}catch(e){console.error(e)}}}}
-load().then(()=>{
+load().then(()=>{if(!process.env.PAYOUT_PARAMS&&D.payoutParams)PAYOUT.params=D.payoutParams;
  server.listen(PORT,'0.0.0.0',async()=>{console.log('RubUp на порту '+PORT);
   if(!BASE)return console.log('Нет WEBAPP_URL — webhook не установлен');
   const r=await tg('setWebhook',{url:BASE+HOOK,allowed_updates:['message','pre_checkout_query']});console.log('webhook:',r.ok,r.description||'');
