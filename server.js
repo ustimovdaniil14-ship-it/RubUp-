@@ -44,7 +44,7 @@ const dayAdd=(k,v)=>{const d=D.day[dk()]=D.day[dk()]||{};d[k]=(d[k]||0)+v};
 
 /* ---------- Telegram Bot API ---------- */
 async function tg(method,body){try{const r=await fetch(`${TGAPI}/bot${TOKEN}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
- let j;try{j=await r.json()}catch(e){j={ok:false,description:'HTTP '+r.status}}if(!r.ok&&!j.error_code)j.error_code=r.status;return j}catch(e){return{ok:false,description:String(e.message)}}}
+ let j;try{j=await r.json()}catch(e){j={ok:false,description:'HTTP '+r.status}}if(!r.ok&&!j.error_code)j.error_code=r.status;return j}catch(e){const c=e.cause;return{ok:false,description:String(e.message)+(c?' ('+(c.code||c.message)+')':'')}}}
 const say=(id,text,extra)=>tg('sendMessage',{chat_id:id,text,...extra});
 function checkInit(init){ // проверка подписи Telegram Mini App; причина отказа в checkInit.why
  const bad=w=>{checkInit.why=w;return null};checkInit.why='';
