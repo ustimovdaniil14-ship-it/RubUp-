@@ -70,8 +70,11 @@ sync:(a,b,u)=>({balance:a.bal-(a.wp&&now()<a.wp.t?a.wp.v:0),wag:a.wag,ups:a.ups,
 top:(a,b,u,q)=>{const day=/p=day/.test(q),t=dk();return{top:Object.values(D.users).map(x=>({name:x.name,wag:day?(x.d[t]||0):Object.values(x.d).reduce((s,v)=>s+v,0)})).filter(x=>x.wag>0).sort((x,y)=>y.wag-x.wag).slice(0,10)}},
 async deposit(a,b,u){const n=Math.floor(b.amount);if(!(n>=1&&n<=1e6))return E('Сумма от 1 до 1 000 000 ★');
  if(!a.m){a.bal+=n;return{balance:a.bal,amount:n,test:1}}
- const r=await tg('createInvoiceLink',{title:'Пополнение RubUp',description:n+' ★ на игровой баланс',payload:'dep:'+u.id+':'+n,provider_token:'',currency:'XTR',prices:[{label:'★',amount:n}]});
- return r.ok?{link:r.result,amount:n}:E('Оплата недоступна: '+(r.description||'ошибка'))},
+ const inv={title:'Пополнение RubUp',description:n+' ★ на игровой баланс',payload:'dep:'+u.id+':'+n,provider_token:'',currency:'XTR',prices:[{label:'★',amount:n}]};
+ const sd=await tg('sendInvoice',{chat_id:u.id,...inv});console.log('sendInvoice:',sd.ok,sd.description||'');
+ if(sd.ok)return{sent:1,amount:n};
+ const r=await tg('createInvoiceLink',inv);console.log('createInvoiceLink:',r.ok,r.description||'',String(r.result||'').slice(0,80));
+ return r.ok?{link:r.result,amount:n}:E('Оплата недоступна: '+(sd.description||r.description||'ошибка'))},
 withdraw:(a,b,u)=>{const n=Math.floor(b.amount);if(!(n>=1))return E('Введите сумму');if(u.frozen)return E('Вывод заморожен');if(n>a.bal)return E('Недостаточно звёзд');
  if(a.wdDate!==dk()){a.wdDate=dk();a.wdDay=0}const l=50000-a.wdDay;if(n>l)return E('Лимит вывода на сегодня: '+l+' ★');
  a.bal-=n;a.wdDay+=n;if(a.m){const w={id:D.wd.length+1,uid:u.id,name:u.name,amount:n,ts:now(),status:'pending'};D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);
@@ -154,7 +157,7 @@ async function onUpdate(up){
   if(sp.currency!=='XTR'||D.paid[cid])return;D.paid[cid]=1;const u=getUser(id,m.from.username||m.from.first_name),n=sp.total_amount;
   u.main.bal+=n;u.dep+=n;D.tot.dep+=n;dayAdd('dep',n);dirty=1;return void say(id,`✅ Зачислено ${n} ★`)}
  const t=(m.text||'').trim();
- if(t.startsWith('/start')){getUser(id,m.from.username||m.from.first_name);dirty=1;
+ if(t.startsWith('/start')){if(/invoice/.test(t))console.log('start-param:',t);getUser(id,m.from.username||m.from.first_name);dirty=1;
   return void say(id,'Добро пожаловать в RubUp 🎰',BASE?{reply_markup:{inline_keyboard:[[{text:'Играть',web_app:{url:BASE}}]]}}:{})}
  if(!isAdm(getUser(id)))return;
  let x;if(t==='/wd'){const p=D.wd.filter(w=>w.status==='pending');return void say(id,p.length?p.map(w=>`#${w.id} @${w.name} (${w.uid}) — ${w.amount} ★`).join('\n'):'Нет заявок')}

@@ -391,6 +391,7 @@ const say=m=>{try{tg().showAlert(m)}catch(e){try{alert(m)}catch(e2){toast(m)}}};
 async function doDeposit(){const amt=+$('dpa').value;toast('Создаю счёт…');const d=await api('deposit',{amount:amt});
  if(d.error)return say(d.error);
  $('sheet').classList.remove('show');
+ if(d.sent){say('Счёт отправлен в чат с ботом RubUp. Откройте чат и нажмите «Оплатить».');try{tg().close()}catch(e){}return}
  if(!d.link){S.bal=d.balance;setBal();toast('Тест: +'+fmt(d.amount)+' ★');if(page=='profile')view();return}
  let got=0;const open2=()=>{try{tg().openTelegramLink(d.link);return 1}catch(e){}try{window.open(d.link,'_blank');return 1}catch(e){}return 0};
  try{tg().openInvoice(d.link,async st=>{got=1;if(st=='paid'){toast('Оплата прошла, зачисляем…');await wait(1500);await loadState();if(page=='profile')view()}else if(st=='failed')say('Оплата не прошла')})}
