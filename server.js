@@ -6,7 +6,7 @@ const TOKEN=process.env.BOT_TOKEN||'',TGAPI=(process.env.API_BASE||'https://api.
  PORT=+process.env.PORT||3000,
  ADMINS=(process.env.ADMIN_IDS||'').split(',').map(s=>+s.trim()).filter(Boolean),OWNER=ADMINS[0];
 const WMW_=+(process.env.WHEEL_MIN_WAG||0),WCD=Math.round(3600*(+process.env.WHEEL_COOLDOWN_H||24)),MIN_WD=+process.env.MIN_WD||15;
-const PAYOUT={method:process.env.PAYOUT_METHOD||'sendStars',params:(()=>{try{return JSON.parse(process.env.PAYOUT_PARAMS||'{"user_id":"{uid}","amount":"{amount}"}')}catch(e){return{}}})()};
+const PAYOUT={method:process.env.PAYOUT_METHOD||'gifts',params:(()=>{try{return JSON.parse(process.env.PAYOUT_PARAMS||'{"user_id":"{uid}","amount":"{amount}"}')}catch(e){return{}}})()};
 const fill=(o,v)=>JSON.parse(JSON.stringify(o),(k,x)=>x==='{uid}'?v.uid:x==='{amount}'?v.amount:x);
 async function giftList(){if(giftList.c&&now()-giftList.t<3e5)return giftList.c;
  const r=await tg('getAvailableGifts',{});const l=(r.ok&&r.result&&r.result.gifts||[]).filter(x=>!x.total_count&&!x.remaining_count).sort((x,y)=>y.star_count-x.star_count);
@@ -44,7 +44,7 @@ const dayAdd=(k,v)=>{const d=D.day[dk()]=D.day[dk()]||{};d[k]=(d[k]||0)+v};
 
 /* ---------- Telegram Bot API ---------- */
 async function tg(method,body){try{const r=await fetch(`${TGAPI}/bot${TOKEN}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
- let j;try{j=await r.json()}catch(e){j={ok:false,description:'HTTP '+r.status}}if(!r.ok&&!j.error_code)j.error_code=r.status;return j}catch(e){const c=e.cause;return{ok:false,description:String(e.message)+(c?' ('+(c.code||c.message)+')':'')}}}
+ let j;try{j=await r.json()}catch(e){j={ok:false,description:'HTTP '+r.status}}if(!r.ok&&!j.error_code)j.error_code=r.status;return j}catch(e){return{ok:false,description:String(e.message)}}}
 const say=(id,text,extra)=>tg('sendMessage',{chat_id:id,text,...extra});
 function checkInit(init){ // проверка подписи Telegram Mini App; причина отказа в checkInit.why
  const bad=w=>{checkInit.why=w;return null};checkInit.why='';
@@ -98,12 +98,9 @@ async withdraw(a,b,u){const n=Math.floor(b.amount);if(!(n>=1))return E('Введ
   const back=n-r.paid;a.bal+=back;a.wdDay-=back;w.amount=r.paid;w.status='done';D.wd.push(w);u.wdn+=r.paid;D.tot.wd+=r.paid;dayAdd('wd',r.paid);
   say(u.id,`🎁 Вывод ${r.paid} ★ отправлен подарками. Откройте их в чате и обменяйте на звёзды.`+(back?`\nНе хватило на целый подарок: ${back} ★ осталось на балансе.`:''));
   return{balance:a.bal,auto:1,paid:r.paid}}
- if(PAYOUT.method&&PAYOUT.method!=='gifts'&&PAYOUT.method!=='manual'){
-  const bb=await tg('getMyStarBalance',{}),have=bb.ok&&bb.result?+bb.result.amount:NaN;
-  if(have<n){a.bal+=n;a.wdDay-=n;for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,`⚠️ Не хватает звёзд на балансе бота для вывода ${n} ★ (там ${have}). Пополните баланс бота.`);return E('Выплата временно недоступна, попробуйте позже')}
-  const r=await tg(PAYOUT.method,fill(PAYOUT.params,{uid:u.id,amount:n}));console.log('payout:',r.ok,r.error_code||'',r.description||'');
-  if(r.ok){w.status='done';D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);say(u.id,`✅ Вывод ${n} ★ отправлен на ваш аккаунт`);return{balance:a.bal,auto:1}}
-  if(r.error_code!==404){a.bal+=n;a.wdDay-=n;return E('Автовывод не удался: '+(r.description||'ошибка'))}}
+ if(PAYOUT.method&&PAYOUT.method!=='gifts'&&PAYOUT.method!=='manual'){const r=await tg(PAYOUT.method,fill(PAYOUT.params,{uid:u.id,amount:n}));console.log('payout:',r.ok,r.description||'');
+  if(!r.ok){a.bal+=n;a.wdDay-=n;return E('Автовывод не удался: '+(r.description||'ошибка'))}
+  w.status='done';D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);return{balance:a.bal,auto:1}}
  D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);
  for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,`💸 Заявка #${w.id}: @${u.name} (${u.id}) выводит ${n} ★\n/done ${w.id} — выплачено\n/reject ${w.id} — вернуть на баланс`);
  return{balance:a.bal,pending:1}},
@@ -191,7 +188,6 @@ async function onUpdate(up){
   for(const m of names){const r=await tg(m,{});const nf=r.error_code===404||/not found|unknown|no such/i.test(r.description||'');out.push((nf?'✗ ':'✓ ')+m+(nf?'':' — '+String(r.description||'ok').slice(0,70)))}
   return void say(id,'Методы платформы (✓ есть, ✗ нет):\n'+out.join('\n'))}
  if(t==='/gifts'){const g=await giftList();return void say(id,g.length?'Подарки (цена ★ — id):\n'+g.map(x=>x.star_count+' — '+x.id).join('\n'):'Подарков нет (или getAvailableGifts не отвечает)')}
- if(t==='/bal'){const r=await tg('getMyStarBalance',{});return void say(id,r.ok?'Баланс бота: '+(r.result&&r.result.amount!=null?r.result.amount:JSON.stringify(r.result))+' ★':'Не удалось: '+(r.description||'ошибка'))}
  let x;if(t==='/wd'){const p=D.wd.filter(w=>w.status==='pending');return void say(id,p.length?p.map(w=>`#${w.id} @${w.name} (${w.uid}) — ${w.amount} ★`).join('\n'):'Нет заявок')}
  if((x=t.match(/^\/(done|reject)\s+(\d+)/))){const w=D.wd.find(v=>v.id===+x[2]);if(!w||w.status!=='pending')return void say(id,'Заявка не найдена');
   if(x[1]==='done'){w.status='done';say(w.uid,`✅ Вывод ${w.amount} ★ выплачен`)}
