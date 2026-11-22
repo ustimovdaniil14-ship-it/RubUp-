@@ -196,11 +196,13 @@ async function onUpdate(up){
   return void say(id,'Методы платформы (✓ есть, ✗ нет):\n'+out.join('\n'))}
  if(t==='/gifts'){const g=await giftList();return void say(id,g.length?'Подарки (цена ★ — id):\n'+g.map(x=>x.star_count+' — '+x.id).join('\n'):'Подарков нет (или getAvailableGifts не отвечает)')}
   if(t==='/bal'){const r=await tg('getMyStarBalance',{});return void say(id,r.ok?'Баланс бота: '+(r.result&&r.result.amount!=null?r.result.amount:JSON.stringify(r.result))+' ★':'Не удалось: '+(r.description||'ошибка'))}
- if(t==='/paytest'){const meth=['gifts','manual'].includes(PAYOUT.method)?'sendStars':PAYOUT.method,out=[`Пробую ${meth} (1 ★ вам):`];let okk=0;
-  const V=[{user_id:'{uid}',amount:'{amount}'},{user_id:'{uid}',star_count:'{amount}'},{user_id:'{uid}',stars:'{amount}'},{user_id:'{uid}',count:'{amount}'},{user_id:'{uid}',quantity:'{amount}'},{chat_id:'{uid}',amount:'{amount}'},{chat_id:'{uid}',star_count:'{amount}'}];
-  for(const v of V){const r=await tg(meth,fill(v,{uid:id,amount:1}));out.push((r.ok?'✅ ':'✗ ')+Object.keys(v).join('+')+' → '+(r.ok?'ok':(r.description||r.error_code)));
-   if(r.ok){okk=1;PAYOUT.params=v;D.payoutParams=v;dirty=1;out.push('Рабочие параметры сохранены. 1 ★ отправлена вам.');break}}
-  if(!okk)out.push('Ни один вариант не подошёл. Перешлите это админу платформы и спросите точные параметры '+meth+'.');
+ if(t==='/paytest'){const meth=['gifts','manual'].includes(PAYOUT.method)?'sendStars':PAYOUT.method,out=[`Пробую ${meth} (1 ★ вам):`];
+  const r0=await tg(meth,{}),r1=await tg(meth,{user_id:id});out.push('без параметров → '+(r0.description||r0.error_code),'только user_id → '+(r1.description||r1.error_code));
+  const names=['amount','star_count','stars','count','quantity'],extras=[{},{currency:'XTR'},{payload:'rubup'},{text:'RubUp'},{comment:'RubUp'},{reason:'RubUp'},{currency:'XTR',payload:'rubup'}],seen={};let okk=0;
+  for(const n of names){for(const ex of extras){const v={user_id:'{uid}',[n]:'{amount}',...ex},r=await tg(meth,fill(v,{uid:id,amount:1}));
+   if(r.ok){okk=1;PAYOUT.params=v;D.payoutParams=v;dirty=1;out.push('✅ Подошло: '+Object.keys(v).join(' + '),'Параметры сохранены, 1 ★ отправлена вам.');break}
+   const d=r.description||r.error_code;(seen[d]=seen[d]||[]).push(n+(Object.keys(ex).length?'+'+Object.keys(ex).join('+'):''))}if(okk)break}
+  if(!okk){for(const d in seen)out.push('✗ '+d+' ×'+seen[d].length+(seen[d].length<4?' ('+seen[d].join(', ')+')':''));out.push('Ни один вариант не подошёл. Перешлите это админу платформы: нужны точные параметры '+meth+'.')}
   return void say(id,out.join('\n'))}
  let x;if(t==='/wd'){const p=D.wd.filter(w=>w.status==='pending');return void say(id,p.length?p.map(w=>`#${w.id} @${w.name} (${w.uid}) — ${w.amount} ★`).join('\n'):'Нет заявок')}
  if((x=t.match(/^\/(done|reject)\s+(\d+)/))){const w=D.wd.find(v=>v.id===+x[2]);if(!w||w.status!=='pending')return void say(id,'Заявка не найдена');
