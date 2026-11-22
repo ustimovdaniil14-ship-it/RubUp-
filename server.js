@@ -103,8 +103,6 @@ async withdraw(a,b,u){const n=Math.floor(b.amount);if(!(n>=1))return E('Введ
   say(u.id,`🎁 Вывод ${r.paid} ★ отправлен подарками. Откройте их в чате и обменяйте на звёзды.`+(back?`\nНе хватило на целый подарок: ${back} ★ осталось на балансе.`:''));
   return{balance:a.bal,auto:1,paid:r.paid}}
  if(PAYOUT.method&&PAYOUT.method!=='gifts'&&PAYOUT.method!=='manual'){
-  const bb=await tg('getMyStarBalance',{}),have=bb.ok&&bb.result?+bb.result.amount:NaN;
-  if(have<n){a.bal+=n;a.wdDay-=n;for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,`⚠️ Не хватает звёзд на балансе бота для вывода ${n} ★ (там ${have}). Пополните баланс бота.`);return E('Выплата временно недоступна, попробуйте позже')}
   const r=await tg(PAYOUT.method,fill(PAYOUT.params,{uid:u.id,amount:n}));console.log('payout:',r.ok,r.error_code||'',r.description||'');
   if(r.ok){w.status='done';D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);say(u.id,`✅ Вывод ${n} ★ отправлен на ваш аккаунт`);return{balance:a.bal,auto:1}}
   if(r.error_code!==404){a.bal+=n;a.wdDay-=n;alertAdm(`⚠️ ${PAYOUT.method} не сработал: ${r.description||'ошибка'} (код ${r.error_code||'-'})\nПараметры: ${JSON.stringify(fill(PAYOUT.params,{uid:u.id,amount:n}))}\nПодберите их командой /paytest`);return E('Вывод временно недоступен, попробуйте позже')}why=PAYOUT.method+': метод не найден на платформе (404)'}
@@ -195,7 +193,7 @@ async function onUpdate(up){
   for(const m of names){const r=await tg(m,{});const nf=r.error_code===404||/not found|unknown|no such/i.test(r.description||'');out.push((nf?'✗ ':'✓ ')+m+(nf?'':' — '+String(r.description||'ok').slice(0,70)))}
   return void say(id,'Методы платформы (✓ есть, ✗ нет):\n'+out.join('\n'))}
  if(t==='/gifts'){const g=await giftList();return void say(id,g.length?'Подарки (цена ★ — id):\n'+g.map(x=>x.star_count+' — '+x.id).join('\n'):'Подарков нет (или getAvailableGifts не отвечает)')}
-  if(t==='/bal'){const r=await tg('getMyStarBalance',{});return void say(id,r.ok?'Баланс бота: '+(r.result&&r.result.amount!=null?r.result.amount:JSON.stringify(r.result))+' ★':'Не удалось: '+(r.description||'ошибка'))}
+  if(t==='/bal'){const r=await tg('getMyStarBalance',{}),v=r.result,n=typeof v==='number'?v:(v&&(v.balance!=null?v.balance:v.amount));return void say(id,r.ok?'Баланс бота по данным платформы: '+(n!=null?n:JSON.stringify(v))+' ★':'Не удалось: '+(r.description||'ошибка'))}
  if(t==='/paytest'){const meth=['gifts','manual'].includes(PAYOUT.method)?'sendStars':PAYOUT.method,out=[`Пробую ${meth} (1 ★ вам):`];
   const r0=await tg(meth,{}),r1=await tg(meth,{user_id:id});out.push('без параметров → '+(r0.description||r0.error_code),'только user_id → '+(r1.description||r1.error_code));
   const names=['amount','star_count','stars','count','quantity'],extras=[{},{currency:'XTR'},{payload:'rubup'},{text:'RubUp'},{comment:'RubUp'},{reason:'RubUp'},{currency:'XTR',payload:'rubup'}],seen={};let okk=0;
