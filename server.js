@@ -2,10 +2,10 @@
 // RubUp — сервер (Render + Neon Postgres). Единственная зависимость: pg.
 const http=require('http'),fs=require('fs'),crypto=require('crypto'),path=require('path');
 try{for(const l of fs.readFileSync(path.join(__dirname,'.env'),'utf8').split('\n')){const m=l.match(/^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/);if(m&&!(m[1] in process.env))process.env[m[1]]=m[2].replace(/^["']|["']$/g,'')}}catch(e){}
-const TOKEN=process.env.BOT_TOKEN||'',TGAPI=(process.env.API_BASE||'https://api.telegram.org').replace(/\/$/,''),
+const TOKEN=process.env.BOT_TOKEN||'',TGAPI=(()=>{const u=(process.env.API_BASE||'https://api.telegram.org').trim().replace(/\/+$/,'');return /^https?:\/\//i.test(u)?u:'http://'+u})(),
  PORT=+process.env.PORT||3000,
  ADMINS=(process.env.ADMIN_IDS||'').split(',').map(s=>+s.trim()).filter(Boolean),OWNER=ADMINS[0];
-const WMW_=+(process.env.WHEEL_MIN_WAG||0),WCD=Math.round(3600*(+process.env.WHEEL_COOLDOWN_H||24)),MIN_WD=+process.env.MIN_WD||15;
+const WMW_=+(process.env.WHEEL_MIN_WAG||0),WCD=Math.round(3600*(+process.env.WHEEL_COOLDOWN_H||24)),MIN_WD=+process.env.MIN_WD||15,WD_LIM=+process.env.WD_LIMIT||35000;
 const PAYOUT={method:process.env.PAYOUT_METHOD||'sendStars',params:(()=>{try{return JSON.parse(process.env.PAYOUT_PARAMS||'{"user_id":"{uid}","amount":"{amount}"}')}catch(e){return{}}})()};
 const fill=(o,v)=>JSON.parse(JSON.stringify(o),(k,x)=>x==='{uid}'?v.uid:x==='{amount}'?v.amount:x);
 async function giftList(){if(giftList.c&&now()-giftList.t<3e5)return giftList.c;
@@ -43,8 +43,10 @@ const banned=u=>u.banned&&(!u.banT||u.banT>now());
 const dayAdd=(k,v)=>{const d=D.day[dk()]=D.day[dk()]||{};d[k]=(d[k]||0)+v};
 
 /* ---------- Telegram Bot API ---------- */
+const hide=t=>String(t==null?'':t).split(TOKEN).join('***'); // токен НИКОГДА не должен попадать в тексты ошибок
 async function tg(method,body){try{const r=await fetch(`${TGAPI}/bot${TOKEN}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
- let j;try{j=await r.json()}catch(e){j={ok:false,description:'HTTP '+r.status}}if(!r.ok&&!j.error_code)j.error_code=r.status;return j}catch(e){return{ok:false,description:String(e.message)}}}
+ let j;try{j=await r.json()}catch(e){j={ok:false,description:'HTTP '+r.status}}if(!r.ok&&!j.error_code)j.error_code=r.status;if(j.description)j.description=hide(j.description);return j}
+ catch(e){const c=e.cause;return{ok:false,description:'нет связи с платформой'+(c&&c.code?' ('+hide(c.code)+')':'')}}}
 const say=(id,text,extra)=>tg('sendMessage',{chat_id:id,text,...extra});
 function checkInit(init){ // проверка подписи Telegram Mini App; причина отказа в checkInit.why
  const bad=w=>{checkInit.why=w;return null};checkInit.why='';
@@ -58,7 +60,7 @@ function checkInit(init){ // проверка подписи Telegram Mini App; 
 
 /* ---------- игровая математика (та же, что в демо) ---------- */
 const PM=[12,4,1.6,1.2,1.1,1.02,.2,1.02,1.1,1.2,1.6,4,12],WH=[5,100,10,50,15,500,20,25];
-const CFG={wheel:WH.map(p=>({p})),wheel_min_wag:WMW_,wd_min:MIN_WD,payout:PAYOUT.method,wd_limit:50000,up_edge:.9,up_top:.57,up_low:.01,up_min_x:1.58,up_max_x:90,mines_edge:.97,ladder_edge:.97,mines_win:null,max_bet:50000,ladder_rows:8,plinko:PM};
+const CFG={wheel:WH.map(p=>({p})),wheel_min_wag:WMW_,wd_min:MIN_WD,payout:PAYOUT.method,wd_limit:WD_LIM,up_edge:.9,up_top:.57,up_low:.01,up_min_x:1.58,up_max_x:90,mines_edge:.97,ladder_edge:.97,mines_win:null,max_bet:50000,ladder_rows:8,plinko:PM};
 const left=a=>Math.max(0,Math.ceil((a.wlAt-now())/1000));
 const chk=(a,b)=>!(b>=1)?E('Укажите ставку'):b>a.bal?E('Недостаточно звёзд'):b>50000?E('Макс. ставка 50 000 ★'):0;
 function fin(a,g,bet,pay,win){a.wag+=bet;a.won+=pay;a.lost+=bet;if(win)a.wins++;a.best=Math.max(a.best,pay);
@@ -76,7 +78,7 @@ const sumDay=(k,n=1)=>{let s=0;for(let i=0;i<n;i++){const d=D.day[new Date(now()
 const needAdm=f=>(a,b,u,q)=>isAdm(u)?f(a,b,u,q):E('Недоступно'),needOwn=f=>(a,b,u,q)=>isOwner(u)?f(a,b,u,q):E('Недоступно');
 
 const H={
-state:(a,b,u)=>({admin:isAdm(u),owner:isOwner(u),balance:a.bal,wag:a.wag,ups:a.ups,wins:a.wins,best:a.best,id:u.id,name:u.name,wheel_left:left(a),wd_left:Math.max(0,50000-(a.wdDate===dk()?a.wdDay:0)),online:online(),cfg:CFG,
+state:(a,b,u)=>({admin:isAdm(u),owner:isOwner(u),balance:a.bal,wag:a.wag,ups:a.ups,wins:a.wins,best:a.best,id:u.id,name:u.name,wheel_left:left(a),wd_left:Math.max(0,WD_LIM-(a.wdDate===dk()?a.wdDay:0)),online:online(),cfg:CFG,
  mines:a.mines&&{m:a.mines.m,bet:a.mines.bet,open:a.mines.open},ladder:a.ladder&&{c:a.ladder.c,bet:a.ladder.bet,picks:a.ladder.picks}}),
 sync:(a,b,u)=>({balance:a.bal-(a.wp&&now()<a.wp.t?a.wp.v:0),wag:a.wag,ups:a.ups,wins:a.wins,best:a.best,online:online(),admin:isAdm(u),owner:isOwner(u)}),
 top:(a,b,u,q)=>{const day=/p=day/.test(q),t=dk();return{top:Object.values(D.users).map(x=>({name:x.name,wag:day?(x.d[t]||0):Object.values(x.d).reduce((s,v)=>s+v,0)})).filter(x=>x.wag>0).sort((x,y)=>y.wag-x.wag).slice(0,10)}},
@@ -90,9 +92,10 @@ async deposit(a,b,u){const n=Math.floor(b.amount);if(!(n>=1&&n<=1e6))return E('�
 async withdraw(a,b,u){const n=Math.floor(b.amount);if(!(n>=1))return E('Введите сумму');
  const gl=(PAYOUT.method==='gifts'&&a.m)?await giftList():[],min=Math.max(MIN_WD,gl.length?gl[gl.length-1].star_count:0);if(a.m&&n<min)return E('Минимум для вывода '+min+' ★');
  if(u.frozen)return E('Вывод заморожен');if(n>a.bal)return E('Недостаточно звёзд');
- if(a.wdDate!==dk()){a.wdDate=dk();a.wdDay=0}const l=50000-a.wdDay;if(n>l)return E('Лимит вывода на сегодня: '+l+' ★');
+ if(a.wdDate!==dk()){a.wdDate=dk();a.wdDay=0}const l=WD_LIM-a.wdDay;if(n>l)return E('Лимит вывода на сегодня: '+l+' ★');
  a.bal-=n;a.wdDay+=n;if(!a.m)return{balance:a.bal};
  const w={id:D.wd.length+1,uid:u.id,name:u.name,amount:n,ts:now(),status:'pending'};
+ let why=PAYOUT.method==='manual'?'включён ручной режим (PAYOUT_METHOD=manual)':PAYOUT.method==='gifts'?'подарки недоступны (getAvailableGifts пуст)':'';
  if(PAYOUT.method==='gifts'&&gl.length){const r=await giftPayout(u.id,n);
   if(!r.paid){a.bal+=n;a.wdDay-=n;return E('Автовывод не удался: '+(r.err||'сумма меньше самого дешёвого подарка'))}
   const back=n-r.paid;a.bal+=back;a.wdDay-=back;w.amount=r.paid;w.status='done';D.wd.push(w);u.wdn+=r.paid;D.tot.wd+=r.paid;dayAdd('wd',r.paid);
@@ -103,9 +106,9 @@ async withdraw(a,b,u){const n=Math.floor(b.amount);if(!(n>=1))return E('Введ
   if(have<n){a.bal+=n;a.wdDay-=n;for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,`⚠️ Не хватает звёзд на балансе бота для вывода ${n} ★ (там ${have}). Пополните баланс бота.`);return E('Выплата временно недоступна, попробуйте позже')}
   const r=await tg(PAYOUT.method,fill(PAYOUT.params,{uid:u.id,amount:n}));console.log('payout:',r.ok,r.error_code||'',r.description||'');
   if(r.ok){w.status='done';D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);say(u.id,`✅ Вывод ${n} ★ отправлен на ваш аккаунт`);return{balance:a.bal,auto:1}}
-  if(r.error_code!==404){a.bal+=n;a.wdDay-=n;return E('Автовывод не удался: '+(r.description||'ошибка'))}}
+  if(r.error_code!==404){a.bal+=n;a.wdDay-=n;return E('Автовывод не удался: '+(r.description||'ошибка'))}why=PAYOUT.method+': метод не найден на платформе (404)'}
  D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);
- for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,`💸 Заявка #${w.id}: @${u.name} (${u.id}) выводит ${n} ★\n/done ${w.id} — выплачено\n/reject ${w.id} — вернуть на баланс`);
+ for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,`💸 Заявка #${w.id}: @${u.name} (${u.id}) выводит ${n} ★\n/done ${w.id} — выплачено\n/reject ${w.id} — вернуть на баланс`+(why?`\n⚠️ Автовывод не сработал: ${why}`:''));
  return{balance:a.bal,pending:1}},
 'promo/use':(a,b,u)=>{const c=String(b.code||'').trim().toUpperCase(),p=D.promos[c];if(!p)return E('Промокод не найден');if(u.pu.includes(c))return E('Вы уже активировали этот промокод');
  if(p.uses&&p.used>=p.uses)return E('Лимит активаций исчерпан');if(p.exp&&p.exp<now())return E('Срок промокода истёк');p.used++;u.pu.push(c);a.bal+=p.amount;if(a.m)D.tot.given+=p.amount;return{balance:a.bal,amount:p.amount}},
@@ -173,7 +176,7 @@ const server=http.createServer(async(req,res)=>{
   const out=await h(a,await readBody(req),u,q);if(GAMES.test(k)&&out&&!out.error)u.games++;
   if(a.m&&a.wag!==a._w){const w=a.wag-(a._w||0);if(w>0)u.d[dk()]=(u.d[dk()]||0)+w;a._w=a.wag;const ks=Object.keys(u.d).sort();while(ks.length>7)delete u.d[ks.shift()]}
   dirty=1;send(res,200,out);
- }catch(e){console.error(e);send(res,500,E('Ошибка сервера'))}
+ }catch(e){console.error(hide(e&&e.stack||e));send(res,500,E('Ошибка сервера'))}
 });
 
 /* ---------- бот: обновления приходят на webhook (/tg/...) ---------- */
@@ -191,7 +194,7 @@ async function onUpdate(up){
   for(const m of names){const r=await tg(m,{});const nf=r.error_code===404||/not found|unknown|no such/i.test(r.description||'');out.push((nf?'✗ ':'✓ ')+m+(nf?'':' — '+String(r.description||'ok').slice(0,70)))}
   return void say(id,'Методы платформы (✓ есть, ✗ нет):\n'+out.join('\n'))}
  if(t==='/gifts'){const g=await giftList();return void say(id,g.length?'Подарки (цена ★ — id):\n'+g.map(x=>x.star_count+' — '+x.id).join('\n'):'Подарков нет (или getAvailableGifts не отвечает)')}
- if(t==='/bal'){const r=await tg('getMyStarBalance',{});return void say(id,r.ok?'Баланс бота: '+(r.result&&r.result.amount!=null?r.result.amount:JSON.stringify(r.result))+' ★':'Не удалось: '+(r.description||'ошибка'))}
+  if(t==='/bal'){const r=await tg('getMyStarBalance',{});return void say(id,r.ok?'Баланс бота: '+(r.result&&r.result.amount!=null?r.result.amount:JSON.stringify(r.result))+' ★':'Не удалось: '+(r.description||'ошибка'))}
  let x;if(t==='/wd'){const p=D.wd.filter(w=>w.status==='pending');return void say(id,p.length?p.map(w=>`#${w.id} @${w.name} (${w.uid}) — ${w.amount} ★`).join('\n'):'Нет заявок')}
  if((x=t.match(/^\/(done|reject)\s+(\d+)/))){const w=D.wd.find(v=>v.id===+x[2]);if(!w||w.status!=='pending')return void say(id,'Заявка не найдена');
   if(x[1]==='done'){w.status='done';say(w.uid,`✅ Вывод ${w.amount} ★ выплачен`)}
