@@ -361,8 +361,17 @@ try{S.hist=(JSON.parse(localStorage.getItem('plinko')||localStorage.getItem('1wi
 const save=()=>{try{localStorage.setItem('plinko',JSON.stringify({hist:S.hist}))}catch(e){}};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const tg=()=>window.Telegram&&Telegram.WebApp;
-const INIT=()=>(tg()&&tg().initData)||new URLSearchParams(location.hash.slice(1)).get('tgWebAppData')||'';
-async function api(p,b){try{const r=await fetch('/api/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Init':INIT(),'X-Test':S.t?'1':'0'},body:JSON.stringify(b||{})});return await r.json()}catch(e){return{error:'Нет связи с сервером'}}}
+const INIT=()=>{try{const w=tg();if(w&&w.initData)return w.initData}catch(e){}
+ for(const s of [location.hash.slice(1),location.search.slice(1)]){const v=new URLSearchParams(s).get('tgWebAppData');if(v)return v}
+ try{const p=JSON.parse(sessionStorage.getItem('__telegram__initParams')||'{}');if(p.tgWebAppData)return p.tgWebAppData}catch(e){}
+ return ''};
+let _dg=0;function showDiag(){if(_dg)return;_dg=1;let w={};try{w=tg()||{}}catch(e){}
+ const t=['href: '+location.href.slice(0,260),'telegram: '+typeof window.Telegram,'webapp: '+typeof w,'platform: '+(w.platform||'-')+' v'+(w.version||'-'),
+  'initData len: '+((w.initData||'').length),'unsafe: '+JSON.stringify(w.initDataUnsafe||{}).slice(0,200),
+  'session: '+((()=>{try{return (sessionStorage.getItem('__telegram__initParams')||'').slice(0,120)}catch(e){return 'err'}})()),'ua: '+navigator.userAgent.slice(0,120)].join('\n');
+ const d=document.createElement('div');d.style.cssText='position:fixed;left:8px;right:8px;top:70px;z-index:99;background:#fff;color:#000;padding:10px;border-radius:10px;font:11px/1.35 monospace;white-space:pre-wrap;word-break:break-all;max-height:70vh;overflow:auto';
+ d.textContent='ДИАГНОСТИКА (сделайте скриншот)\n\n'+t;const b=document.createElement('button');b.textContent='закрыть';b.style.cssText='display:block;margin-top:8px;padding:6px 12px';b.onclick=()=>d.remove();d.appendChild(b);document.body.appendChild(d)}
+async function api(p,b){try{const r=await fetch('/api/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Init':INIT(),'X-Test':S.t?'1':'0'},body:JSON.stringify(b||{})});const d=await r.json();if(d.error&&/нет данных входа/.test(d.error))showDiag();return d}catch(e){return{error:'Нет связи с сервером'}}}
 function applyCfg(c){if(Array.isArray(c.wheel)&&c.wheel.length)WHEEL=c.wheel.slice();if(c.wheel_min_wag!=null)WMW=c.wheel_min_wag;if(c.wd_limit)WDL=c.wd_limit;E=c.up_edge;UPTOP=c.up_top;UPLOW=c.up_low;UPMINX=c.up_min_x;UPMAX=c.up_max_x;MEDGE=c.mines_edge;LEDGE=c.ladder_edge;MWIN=c.mines_win;MAXB=c.max_bet;LROWS=c.ladder_rows;if(Array.isArray(c.plinko)&&c.plinko.length==PM.length)PM=c.plinko.slice();X=Math.min(UPMAX,Math.max(UPMINX,X))}
 async function loadState(){const d=await api('state');if(d.error){toast(d.error);return}if(d.cfg)applyCfg(d.cfg);
  Object.assign(S,{admin:!!d.admin,owner:!!d.owner,bal:d.balance,wag:d.wag,ups:d.ups,wins:d.wins,best:d.best,id:d.id,name:d.name,wl:d.wheel_left||0,wlT:Date.now(),wdl:d.wd_left});
