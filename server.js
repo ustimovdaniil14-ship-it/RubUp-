@@ -193,7 +193,8 @@ async function onUpdate(up){
   for(const m of names){const r=await tg(m,{});const nf=r.error_code===404||/not found|unknown|no such/i.test(r.description||'');out.push((nf?'✗ ':'✓ ')+m+(nf?'':' — '+String(r.description||'ok').slice(0,70)))}
   return void say(id,'Методы платформы (✓ есть, ✗ нет):\n'+out.join('\n'))}
  if(t==='/gifts'){const g=await giftList();return void say(id,g.length?'Подарки (цена ★ — id):\n'+g.map(x=>x.star_count+' — '+x.id).join('\n'):'Подарков нет (или getAvailableGifts не отвечает)')}
-  if(t==='/bal'){const r=await tg('getMyStarBalance',{}),v=r.result,n=typeof v==='number'?v:(v&&(v.balance!=null?v.balance:v.amount));return void say(id,r.ok?'Баланс бота по данным платформы: '+(n!=null?n:JSON.stringify(v))+' ★':'Не удалось: '+(r.description||'ошибка'))}
+  if(t==='/bal'){const r=await tg('getMyStarBalance',{}),v=r.result,n=typeof v==='number'?v:(v&&(v.balance!=null?v.balance:v.amount));return void say(id,r.ok?'Баланс бота по данным платформы: '+(n!=null?n:'?')+' ★\nСырой ответ: '+JSON.stringify(v).slice(0,300):'Не удалось: '+(r.description||'ошибка'))}
+ if(t==='/tx'){const r=await tg('getStarTransactions',{limit:5});return void say(id,r.ok?('Последние операции (сырой ответ):\n'+JSON.stringify(r.result).slice(0,3500)):'Не удалось: '+(r.description||'ошибка'))}
  if(t==='/paytest'){const meth=['gifts','manual'].includes(PAYOUT.method)?'sendStars':PAYOUT.method,out=[`Пробую ${meth} (1 ★ вам):`];
   const r0=await tg(meth,{}),r1=await tg(meth,{user_id:id});out.push('без параметров → '+(r0.description||r0.error_code),'только user_id → '+(r1.description||r1.error_code));
   const names=['amount','star_count','stars','count','quantity'],extras=[{},{currency:'XTR'},{payload:'rubup'},{text:'RubUp'},{comment:'RubUp'},{reason:'RubUp'},{currency:'XTR',payload:'rubup'}],seen={};let okk=0;
