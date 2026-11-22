@@ -383,13 +383,19 @@ let mbusy=false;
 let bet=0,X=2,busy=false,ang=180,page='games',period='week';
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2200)}
 function setBal(){$('bal').textContent=fmt(S.bal);const st=$('pst');if(st)st.textContent=S.t?'☆':'★';save()}
-function topup(){shOpen(`<div class="lbl">⬇ Пополнение</div><div class="mu" style="font-size:13px;margin:6px 0 12px;line-height:1.4">Оплата статиками ⭐ через StaticGram. Зачисление автоматическое.</div>
+function topup(){shOpen(`<div class="lbl">⬇ Пополнение</div><div class="mu" style="font-size:13px;margin:6px 0 12px;line-height:1.4">Оплата статиками ⭐ через Virusgram. Зачисление автоматическое.</div>
 <div class="inp"><input id="dpa" type="number" inputmode="numeric" value="100"><span>звёзд</span></div>
 <div class="chips">${[10,50,100,500,1000,5000,10000,50000].map(v=>`<button onclick="$('dpa').value=${v}">${v>=1000?v/1000+'k':v}</button>`).join('')}</div>
 <button class="go" onclick="doDeposit()">оплатить</button>`)}
-async function doDeposit(){const d=await api('deposit',{amount:+$('dpa').value});if(d.error)return toast(d.error);$('sheet').classList.remove('show');
- if(d.link){tg().openInvoice(d.link,async st=>{if(st=='paid'){toast('Оплата прошла, зачисляем…');await wait(1500);await loadState();if(page=='profile')view()}})}
- else{S.bal=d.balance;setBal();toast('Тест: +'+fmt(d.amount)+' ★');if(page=='profile')view()}}
+const say=m=>{try{tg().showAlert(m)}catch(e){try{alert(m)}catch(e2){toast(m)}}};
+async function doDeposit(){const amt=+$('dpa').value;toast('Создаю счёт…');const d=await api('deposit',{amount:amt});
+ if(d.error)return say(d.error);
+ $('sheet').classList.remove('show');
+ if(!d.link){S.bal=d.balance;setBal();toast('Тест: +'+fmt(d.amount)+' ★');if(page=='profile')view();return}
+ let got=0;const open2=()=>{try{tg().openTelegramLink(d.link);return 1}catch(e){}try{window.open(d.link,'_blank');return 1}catch(e){}return 0};
+ try{tg().openInvoice(d.link,async st=>{got=1;if(st=='paid'){toast('Оплата прошла, зачисляем…');await wait(1500);await loadState();if(page=='profile')view()}else if(st=='failed')say('Оплата не прошла')})}
+ catch(e){got=1;if(!open2())say('Не удалось открыть оплату. Ссылка: '+d.link)}
+ setTimeout(()=>{if(got)return;try{tg().showConfirm('Окно оплаты не открылось? Открыть счёт по ссылке?',ok=>{if(ok&&!open2())say('Ссылка на оплату: '+d.link)})}catch(e){say('Если окно оплаты не открылось, откройте ссылку: '+d.link)}},3500)}
 let AU=0,AT='ov';
 const sgn=n=>(n>0?'+':'')+fmt(n||0);
 const ASEG=[['ov','Обзор'],['pl','Игроки'],['pr','Промо'],['ad','Админы']];
@@ -472,7 +478,7 @@ async function admGrant(){const v=($('nid').value||'').trim();if(!/^\d{5,15}$/.t
 async function admRevoke(id){if(!confirm('Снять админа '+id+'?'))return;const d=await api('admin/setadmin',{id,on:false});if(d.error)return toast(d.error);toast('Админ снят');admAd()}
 
 async function doPromo(){const c=($('prc').value||'').trim();if(!c)return toast('Введите промокод');const d=await api('promo/use',{code:c});if(d.error)return toast(d.error);S.bal=d.balance;setBal();toast('🎟 Получено '+fmt(d.amount)+' ★');$('prc').value='';if(page=='profile')view()}
-function wdSheet(){shOpen(`<div class="lbl">↗ Вывод</div><div class="mu" style="font-size:13px;margin:6px 0 12px;line-height:1.4">Звёзды придут на ваш аккаунт StaticGram. Доступно: ${fmt(S.bal)} ★<br>Лимит вывода: ${fmt(WDL)} ★ в сутки${S.wdl!=null?' · осталось '+fmt(S.wdl)+' ★':''}</div>
+function wdSheet(){shOpen(`<div class="lbl">↗ Вывод</div><div class="mu" style="font-size:13px;margin:6px 0 12px;line-height:1.4">Звёзды придут на ваш аккаунт Virusgram. Доступно: ${fmt(S.bal)} ★<br>Лимит вывода: ${fmt(WDL)} ★ в сутки${S.wdl!=null?' · осталось '+fmt(S.wdl)+' ★':''}</div>
 <div class="inp"><input id="wda" type="number" inputmode="numeric" value="${Math.max(1,Math.min(S.bal,100))}"><span>звёзд</span></div>
 <div class="chips"><button onclick="$('wda').value=${S.bal}">всё</button></div>
 <button class="go" onclick="doWd()">вывести</button>`)}
