@@ -34,13 +34,15 @@ const dayAdd=(k,v)=>{const d=D.day[dk()]=D.day[dk()]||{};d[k]=(d[k]||0)+v};
 /* ---------- Telegram Bot API ---------- */
 async function tg(method,body){try{const r=await fetch(`${TGAPI}/bot${TOKEN}/${method}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});return await r.json()}catch(e){return{ok:false,description:String(e.message)}}}
 const say=(id,text,extra)=>tg('sendMessage',{chat_id:id,text,...extra});
-function checkInit(init){ // проверка подписи Telegram Mini App
- const p=new URLSearchParams(init),h=p.get('hash');if(!h)return null;p.delete('hash');
+function checkInit(init){ // проверка подписи Telegram Mini App; причина отказа в checkInit.why
+ const bad=w=>{checkInit.why=w;return null};checkInit.why='';
+ if(!init)return bad('нет данных входа');
+ const p=new URLSearchParams(init),h=p.get('hash');if(!h)return bad('нет hash');p.delete('hash');
  const s=[...p.entries()].map(([k,v])=>k+'='+v).sort().join('\n'),key=crypto.createHmac('sha256','WebAppData').update(TOKEN).digest(),
   sig=crypto.createHmac('sha256',key).update(s).digest('hex');
- if(sig.length!==h.length||!crypto.timingSafeEqual(Buffer.from(sig),Buffer.from(h)))return null;
- if(now()/1000-(+p.get('auth_date')||0)>86400)return null;
- try{return JSON.parse(p.get('user'))}catch(e){return null}}
+ if(sig.length!==h.length||!crypto.timingSafeEqual(Buffer.from(sig),Buffer.from(h)))return bad('подпись не совпала');
+ if(now()/1000-(+p.get('auth_date')||0)>86400)return bad('вход устарел');
+ try{return JSON.parse(p.get('user'))}catch(e){return bad('нет user')}}
 
 /* ---------- игровая математика (та же, что в демо) ---------- */
 const PM=[12,4,1.6,1.2,1.1,1.02,.2,1.02,1.1,1.2,1.6,4,12],WH=[5,100,10,50,15,500,20,25];
@@ -134,7 +136,7 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='GET'&&(req.url==='/'||req.url.startsWith('/?')||req.url==='/index.html')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(fs.readFileSync(path.join(__dirname,'index.html')))}
   if(req.method!=='POST'||!req.url.startsWith('/api/'))return send(res,404,E('not found'));
   const q=req.url.slice(5),k=q.split('?')[0],h=H[k];if(!h)return send(res,404,E('Неизвестный метод'));
-  const tu=checkInit(req.headers['x-init']||'');if(!tu)return send(res,401,E('Откройте приложение через Telegram'));
+  const tu=checkInit(req.headers['x-init']||'');if(!tu){console.log('auth fail:',checkInit.why,'| init длина',(req.headers['x-init']||'').length);return send(res,401,E('Откройте через Telegram ('+checkInit.why+')'))}
   const u=getUser(tu.id,tu.username||tu.first_name||'');u.seen=now();
   if(banned(u))return send(res,200,E('Аккаунт заблокирован'));
   const a=(req.headers['x-test']==='1'&&isAdm(u))?u.test:u.main;
@@ -161,9 +163,12 @@ async function onUpdate(up){
   else{w.status='rejected';const u=D.users[w.uid];u.main.bal+=w.amount;u.wdn-=w.amount;D.tot.wd-=w.amount;say(w.uid,`Заявка на вывод ${w.amount} ★ отклонена, звёзды возвращены`)}
   dirty=1;return void say(id,'Готово')}
 }
+async function poll(){let off=0;for(;;){const r=await tg('getUpdates',{offset:off,timeout:25,allowed_updates:['message','pre_checkout_query']});
+ if(!r.ok){await new Promise(x=>setTimeout(x,3000));continue}for(const up of r.result){off=up.update_id+1;try{await onUpdate(up)}catch(e){console.error(e)}}}}
 load().then(()=>{
  server.listen(PORT,'0.0.0.0',async()=>{console.log('RubUp на порту '+PORT);
   if(!BASE)return console.log('Нет WEBAPP_URL — webhook не установлен');
   const r=await tg('setWebhook',{url:BASE+HOOK,allowed_updates:['message','pre_checkout_query']});console.log('webhook:',r.ok,r.description||'');
+  if(!r.ok){console.log('webhook не вышел — включаю polling');await tg('deleteWebhook');poll()}
   await tg('setChatMenuButton',{menu_button:{type:'web_app',text:'Играть',web_app:{url:BASE}}})})
 }).catch(e=>{console.error('Старт не удался:',e.message);process.exit(1)});
