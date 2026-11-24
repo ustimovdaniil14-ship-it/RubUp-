@@ -61,7 +61,7 @@ function checkInit(init){ // проверка подписи Telegram Mini App; 
 
 /* ---------- игровая математика (та же, что в демо) ---------- */
 const PM=[12,4,1.6,1.2,1.1,1.02,.2,1.02,1.1,1.2,1.6,4,12],WH=[5,100,10,50,15,500,20,25];
-const CFG={wheel:WH.map(p=>({p})),wheel_min_wag:WMW_,wd_min:MIN_WD,payout:PAYOUT.method,wd_limit:WD_LIM,up_edge:.9,up_top:.57,up_low:.01,up_min_x:1.58,up_max_x:90,mines_edge:.97,ladder_edge:.97,mines_win:null,max_bet:50000,ladder_rows:8,plinko:PM};
+const CFG={wheel:WH.map(p=>({p})),wheel_min_wag:WMW_,wd_min:MIN_WD,payout:PAYOUT.method,wd_limit:WD_LIM,support:process.env.SUPPORT||'Techiqqe',botlink:process.env.BOT_LINK||'',up_edge:.9,up_top:.57,up_low:.01,up_min_x:1.58,up_max_x:90,mines_edge:.97,ladder_edge:.97,mines_win:null,max_bet:50000,ladder_rows:8,plinko:PM};
 const left=a=>Math.max(0,Math.ceil((a.wlAt-now())/1000));
 const chk=(a,b)=>!(b>=1)?E('Укажите ставку'):b>a.bal?E('Недостаточно звёзд'):b>50000?E('Макс. ставка 50 000 ★'):0;
 function fin(a,g,bet,pay,win){a.wag+=bet;a.won+=pay;a.lost+=bet;if(win)a.wins++;a.best=Math.max(a.best,pay);
@@ -109,6 +109,7 @@ async withdraw(a,b,u){const n=Math.floor(b.amount);if(!(n>=1))return E('Введ
  D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);
  for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,`💸 Заявка #${w.id}: @${u.name} (${u.id}) выводит ${n} ★\n/done ${w.id} — выплачено\n/reject ${w.id} — вернуть на баланс`+(why?`\n⚠️ Автовывод не сработал: ${why}`:''));
  return{balance:a.bal,pending:1}},
+ops:(a,b,u)=>{if(!a.m)return{items:[]};const it=[...(u.ops||[]).map(o=>({k:'dep',n:o.n,t:o.t,s:'done'})),...D.wd.filter(w=>w.uid===u.id).slice(-20).map(w=>({k:'wd',n:w.amount,t:w.ts,s:w.status}))].sort((x,y)=>y.t-x.t).slice(0,25);return{items:it}},
 'promo/use':(a,b,u)=>{const c=String(b.code||'').trim().toUpperCase(),p=D.promos[c];if(!p)return E('Промокод не найден');if(u.pu.includes(c))return E('Вы уже активировали этот промокод');
  if(p.uses&&p.used>=p.uses)return E('Лимит активаций исчерпан');if(p.exp&&p.exp<now())return E('Срок промокода истёк');p.used++;u.pu.push(c);a.bal+=p.amount;if(a.m)D.tot.given+=p.amount;return{balance:a.bal,amount:p.amount}},
 'wheel/spin':a=>{if(a.wag<WMW_)return E('Сыграйте ещё на '+(WMW_-a.wag)+' ★');if(left(a)>0)return E('Рано, подождите');
@@ -184,7 +185,7 @@ async function onUpdate(up){
  const m=up.message;if(!m)return;const id=m.from.id;
  if(m.successful_payment){const sp=m.successful_payment,cid=sp.telegram_payment_charge_id;
   if(sp.currency!=='XTR'||D.paid[cid])return;D.paid[cid]=1;const u=getUser(id,m.from.username||m.from.first_name),n=sp.total_amount;
-  u.main.bal+=n;u.dep+=n;D.tot.dep+=n;dayAdd('dep',n);dirty=1;return void say(id,`✅ Зачислено ${n} ★`)}
+  u.main.bal+=n;u.dep+=n;D.tot.dep+=n;(u.ops=u.ops||[]).push({n,t:now()});if(u.ops.length>30)u.ops.shift();dayAdd('dep',n);dirty=1;return void say(id,`✅ Зачислено ${n} ★`)}
  const t=(m.text||'').trim();
  if(t.startsWith('/start')){if(/invoice/.test(t))console.log('start-param:',t);getUser(id,m.from.username||m.from.first_name);dirty=1;
   return void say(id,'Добро пожаловать в RubUp 🎰',BASE?{reply_markup:{inline_keyboard:[[{text:'Играть',web_app:{url:BASE}}]]}}:{})}
@@ -192,7 +193,10 @@ async function onUpdate(up){
  if(t==='/probe'){const names='getMe getMyStarBalance getStarTransactions refundStarPayment sendInvoice createInvoiceLink answerPreCheckoutQuery sendGift getAvailableGifts sendStars sendStar giftStars giveStars transferStars transferStar starTransfer sendStarsToUser payUser payoutStars createPayout requestPayout withdrawStars withdraw withdrawalRequest cashout sendReward rewardUser creditStars addStars grantStars awardStars sendBalance topUp transferBalance sendCoins sendPayment createTransfer starsWithdraw claimStars getBotStars getBotStarBalance getStarsBalance getBalance getMyBalance getStarBalance getWalletBalance getBusinessAccountStarBalance transferBusinessAccountStars getStarSubscriptions convertGiftToStars getBusinessAccountGifts transferGift sendPaidMedia setMyStarPayoutAddress getStarPayout sendStatics sendStatic sendMoney transfer getStars getBotBalance getStatics createWithdrawal sendPayout payout giftPremiumSubscription getMyStarRevenue getStarRevenue getRevenue'.split(' '),out=[];
   for(const m of names){const r=await tg(m,{});const nf=r.error_code===404||/not found|unknown|no such/i.test(r.description||'');if(!nf)out.push('✓ '+m+' — '+String(r.description||'ok').slice(0,60))}
   return void say(id,`Найдено методов: ${out.length} из ${names.length}\n`+out.join('\n'))}
- if(t==='/gifts'){const g=await giftList();return void say(id,g.length?'Подарки (цена ★ — id):\n'+g.map(x=>x.star_count+' — '+x.id).join('\n'):'Подарков нет (или getAvailableGifts не отвечает)')}
+ if(t==='/gifts'){const r=await tg('getAvailableGifts',{}),l=(r.ok&&r.result&&r.result.gifts)||[];
+  const out=['Подарков: '+l.length,'Цены ★: '+l.map(x=>x.star_count).join(', ').slice(0,350),'Первый подарок (сырой ответ):\n'+JSON.stringify(l[0]||r).slice(0,900)];
+  const fid=l[0]&&l[0].sticker&&l[0].sticker.file_id;if(fid){const f=await tg('getFile',{file_id:fid});out.push('getFile для картинки: '+JSON.stringify(f).slice(0,300))}else out.push('В подарке нет поля sticker с картинкой');
+  return void say(id,out.join('\n\n'))}
   if(t==='/bal'){const r1=await tg('getMyStarBalance',{}),r2=await tg('getStarBalance',{});
   const f=r=>r.ok?JSON.stringify(r.result).slice(0,200):'ошибка: '+(r.description||r.error_code);
   return void say(id,'getMyStarBalance → '+f(r1)+'\ngetStarBalance → '+f(r2))}
@@ -205,6 +209,9 @@ async function onUpdate(up){
    const d=r.description||r.error_code;(seen[d]=seen[d]||[]).push(n+(Object.keys(ex).length?'+'+Object.keys(ex).join('+'):''))}if(okk)break}
   if(!okk){for(const d in seen)out.push('✗ '+d+' ×'+seen[d].length+(seen[d].length<4?' ('+seen[d].join(', ')+')':''));out.push('Ни один вариант не подошёл. Перешлите это админу платформы: нужны точные параметры '+meth+'.')}
   return void say(id,out.join('\n'))}
+ if(t==='/market'){const names='buyGift purchaseGift buyMarketGift buyResaleGift buyFromMarket buyUniqueGift getMarketGifts getGiftMarket getMarket getResaleGifts getUniqueGifts getMarketplace getOwnedGifts getBotGifts getMyGifts getUserGifts getGiftsMarket marketBuy marketGifts getGiftOffers sendResaleGift transferGift upgradeGift giftUpgrade getUniqueGift getGiftCollections'.split(' '),out=[];
+  for(const m of names){const r=await tg(m,{});const nf=r.error_code===404||/not found|unknown|no such/i.test(r.description||'');if(!nf)out.push('✓ '+m+' — '+String(r.description||'ok').slice(0,70))}
+  return void say(id,out.length?'Найдено ('+out.length+' из '+names.length+'):\n'+out.join('\n'):'Методов покупки с маркета не найдено (проверено '+names.length+' названий).')}
  let x;if(t==='/wd'){const p=D.wd.filter(w=>w.status==='pending');return void say(id,p.length?p.map(w=>`#${w.id} @${w.name} (${w.uid}) — ${w.amount} ★`).join('\n'):'Нет заявок')}
  if((x=t.match(/^\/(done|reject)\s+(\d+)/))){const w=D.wd.find(v=>v.id===+x[2]);if(!w||w.status!=='pending')return void say(id,'Заявка не найдена');
   if(x[1]==='done'){w.status='done';say(w.uid,`✅ Вывод ${w.amount} ★ выплачен`)}
@@ -214,7 +221,7 @@ async function onUpdate(up){
 async function poll(){let off=0;for(;;){const r=await tg('getUpdates',{offset:off,timeout:25,allowed_updates:['message','pre_checkout_query']});
  if(!r.ok){await new Promise(x=>setTimeout(x,3000));continue}for(const up of r.result){off=up.update_id+1;try{await onUpdate(up)}catch(e){console.error(e)}}}}
 load().then(()=>{if(!process.env.PAYOUT_PARAMS&&D.payoutParams)PAYOUT.params=D.payoutParams;
- server.listen(PORT,'0.0.0.0',async()=>{console.log('RubUp на порту '+PORT);
+ server.listen(PORT,'0.0.0.0',async()=>{console.log('RubUp на порту '+PORT);tg('getMe',{}).then(r=>{if(r.ok&&r.result)CFG.bot=r.result.username});
   if(!BASE)return console.log('Нет WEBAPP_URL — webhook не установлен');
   const r=await tg('setWebhook',{url:BASE+HOOK,allowed_updates:['message','pre_checkout_query']});console.log('webhook:',r.ok,r.description||'');
   if(!r.ok){console.log('webhook не вышел — включаю polling');await tg('deleteWebhook');poll()}
