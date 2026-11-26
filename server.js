@@ -15,7 +15,6 @@ const CASES=[
 const mask=n=>{n=String(n||'?');return n.length>4?n.slice(0,2)+'…'+n.slice(-2):n[0]+'…'};
 const WMW_=+(process.env.WHEEL_MIN_WAG||0),WCD=Math.round(3600*(+process.env.WHEEL_COOLDOWN_H||24)),MIN_WD=+process.env.MIN_WD||15,WD_LIM=+process.env.WD_LIMIT||35000;
 const PAYOUT={method:process.env.PAYOUT_METHOD||'sendStars',params:(()=>{try{return JSON.parse(process.env.PAYOUT_PARAMS||'{"user_id":"{uid}","amount":"{amount}"}')}catch(e){return{}}})()};
-const audit=(type,u,amount,detail='')=>{D.audit=D.audit||[];D.audit.push({type,uid:u.id,name:u.name,amount:Math.floor(amount||0),ts:now(),detail});if(D.audit.length>500)D.audit.splice(0,D.audit.length-500);dirty=1};
 const alertAdm=t=>{if(now()-(alertAdm.t||0)<3e5)return;alertAdm.t=now();for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,t)};
 const fill=(o,v)=>JSON.parse(JSON.stringify(o),(k,x)=>x==='{uid}'?v.uid:x==='{amount}'?v.amount:x);
 async function giftList(){if(giftList.c&&now()-giftList.t<3e5)return giftList.c;
@@ -37,7 +36,7 @@ let D={},dirty=0,saving=false;
 async function load(){
  await DB.query('create table if not exists kv(k text primary key, v jsonb not null)');
  const r=await DB.query("select v from kv where k='main'");D=r.rows[0]?r.rows[0].v:{};
- D.users=D.users||{};D.promos=D.promos||{};D.wd=D.wd||[];D.paid=D.paid||{};D.pg=D.pg||{};D.day=D.day||{};D.tot=D.tot||{dep:0,wd:0,given:0,wag:0};D.audit=D.audit||[];for(const u of Object.values(D.users)){delete u.inv;delete u.cd}D.feed=[];delete D.pg.cases;dirty=1;}
+ D.users=D.users||{};D.promos=D.promos||{};D.wd=D.wd||[];D.paid=D.paid||{};D.pg=D.pg||{};D.day=D.day||{};D.tot=D.tot||{dep:0,wd:0,given:0,wag:0};}
 async function save(){if(!dirty||saving)return;saving=true;dirty=0;
  try{await DB.query("insert into kv(k,v) values('main',$1) on conflict(k) do update set v=excluded.v",[JSON.stringify(D)])}catch(e){dirty=1;console.error('save',e.message)}saving=false}
 setInterval(save,1500);
@@ -108,15 +107,15 @@ async withdraw(a,b,u){const n=Math.floor(b.amount);if(!(n>=1))return E('Введ
  let why=PAYOUT.method==='manual'?'включён ручной режим (PAYOUT_METHOD=manual)':PAYOUT.method==='gifts'?'подарки недоступны (getAvailableGifts пуст)':'';
  if(PAYOUT.method==='gifts'&&gl.length){const r=await giftPayout(u.id,n);
   if(!r.paid){a.bal+=n;a.wdDay-=n;return E('Автовывод не удался: '+(r.err||'сумма меньше самого дешёвого подарка'))}
-  const back=n-r.paid;a.bal+=back;a.wdDay-=back;w.amount=r.paid;w.status='done';D.wd.push(w);u.wdn+=r.paid;D.tot.wd+=r.paid;dayAdd('wd',r.paid);audit('withdraw',u,r.paid,'Автовывод подарками');if(OWNER)say(OWNER,`🎁 Автовывод подарками: @${u.name} (${u.id}) · ${r.paid} ★ · ${new Date(w.ts).toLocaleString('ru-RU')}`);
+  const back=n-r.paid;a.bal+=back;a.wdDay-=back;w.amount=r.paid;w.status='done';D.wd.push(w);u.wdn+=r.paid;D.tot.wd+=r.paid;dayAdd('wd',r.paid);
   say(u.id,`🎁 Вывод ${r.paid} ★ отправлен подарками. Откройте их в чате и обменяйте на звёзды.`+(back?`\nНе хватило на целый подарок: ${back} ★ осталось на балансе.`:''));
   return{balance:a.bal,auto:1,paid:r.paid}}
  if(PAYOUT.method&&PAYOUT.method!=='gifts'&&PAYOUT.method!=='manual'){
   const r=await tg(PAYOUT.method,fill(PAYOUT.params,{uid:u.id,amount:n}));console.log('payout:',r.ok,r.error_code||'',r.description||'');
-  if(r.ok){w.status='done';D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);audit('withdraw',u,n,'Автовывод: '+PAYOUT.method);if(OWNER)say(OWNER,`✅ Автовывод: @${u.name} (${u.id}) · ${n} ★ · ${new Date(w.ts).toLocaleString('ru-RU')}`);say(u.id,`✅ Вывод ${n} ★ отправлен на ваш аккаунт`);return{balance:a.bal,auto:1}}
+  if(r.ok){w.status='done';D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);say(u.id,`✅ Вывод ${n} ★ отправлен на ваш аккаунт`);return{balance:a.bal,auto:1}}
   if(r.error_code!==404){a.bal+=n;a.wdDay-=n;alertAdm(`⚠️ ${PAYOUT.method} не сработал: ${r.description||'ошибка'} (код ${r.error_code||'-'})\nПараметры: ${JSON.stringify(fill(PAYOUT.params,{uid:u.id,amount:n}))}\nПодберите их командой /paytest`);return E('Вывод временно недоступен, попробуйте позже')}why=PAYOUT.method+': метод не найден на платформе (404)'}
  D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);
- audit('withdraw',u,n,`Заявка #${w.id}`);if(OWNER)say(OWNER,`💸 Заявка #${w.id}: @${u.name} (${u.id}) выводит ${n} ★\n/done ${w.id} — выплачено\n/reject ${w.id} — вернуть на баланс`+(why?`\n⚠️ Автовывод не сработал: ${why}`:''));
+ for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,`💸 Заявка #${w.id}: @${u.name} (${u.id}) выводит ${n} ★\n/done ${w.id} — выплачено\n/reject ${w.id} — вернуть на баланс`+(why?`\n⚠️ Автовывод не сработал: ${why}`:''));
  return{balance:a.bal,pending:1}},
 ops:(a,b,u)=>{if(!a.m)return{items:[]};const it=[...(u.ops||[]).map(o=>({k:'dep',n:o.n,t:o.t,s:'done'})),...D.wd.filter(w=>w.uid===u.id).slice(-20).map(w=>({k:'wd',n:w.amount,t:w.ts,s:w.status}))].sort((x,y)=>y.t-x.t).slice(0,25);return{items:it}},
 cases:a=>({sell:SELL_PCT,inv:(a.inv||[]).filter(x=>x.s!=='sold').length,cases:CASES.map(c=>{const T=c.it.reduce((q,x)=>q+x[1],0);return{id:c.id,n:c.n,p:c.p,left:c.cd?Math.max(0,Math.ceil(((a.cd&&a.cd[c.id]||0)-now())/1000)):0,it:c.it.map(([i,w])=>({i,n:IT[i][0],v:IT[i][1],k:IT[i][2],c:Math.round(w/T*1000)/10}))}})}),
@@ -162,10 +161,8 @@ up:(a,b)=>{const e=chk(a,b.bet);if(e)return e;const{bet,x}=b;if(!(x>=1.58&&x<=90
 'admin/stats':needAdm(()=>{const us=Object.values(D.users),pg=Object.fromEntries(Object.entries(D.pg).map(([k,v])=>[k,Math.round(v)])),pend=D.wd.filter(w=>w.status==='pending');
  return{users:us.length,online:online(),new24:us.filter(x=>now()-x.t0<864e5).length,wag24:sumDay('wag'),bot:0,debt:us.reduce((s,x)=>s+x.main.bal,0),dep_total:D.tot.dep,dep24:sumDay('dep'),
   wd_total:D.tot.wd,wd24:sumDay('wd'),pend:pend.length,wd_pend:pend.reduce((s,w)=>s+w.amount,0),given:D.tot.given,wag_total:D.tot.wag,profit:Math.round(Object.values(D.pg).reduce((s,v)=>s+v,0)),pg}}),
-'admin/activity':needOwn(()=>({items:(D.audit||[]).slice(-150).reverse().map(x=>({type:x.type,name:x.name,id:x.uid,amount:x.amount,ts:x.ts,detail:x.detail}))})),
-'admin/withdrawals':needOwn(()=>({items:(D.wd||[]).slice(-150).reverse().map(w=>({id:w.id,name:w.name,uid:w.uid,amount:w.amount,ts:w.ts,status:w.status}))})),
 'admin/user':needAdm((a,b)=>{const t=find(b.q);return t?{user:view(t)}:E('Игрок не найден')}),
-'admin/balance':needAdm((a,b,u)=>{const t=D.users[b.id];if(!t)return E('Игрок не найден');audit('balance',u,b.amount,'Изменение баланса игрока '+t.id);t.main.bal=Math.max(0,t.main.bal+Math.floor(b.amount));if(b.amount>0)D.tot.given+=b.amount;return{balance:t.main.bal}}),
+'admin/balance':needAdm((a,b)=>{const t=D.users[b.id];if(!t)return E('Игрок не найден');t.main.bal=Math.max(0,t.main.bal+Math.floor(b.amount));if(b.amount>0)D.tot.given+=b.amount;return{balance:t.main.bal}}),
 'admin/zero':needAdm((a,b)=>{const t=D.users[b.id];if(!t)return E('Игрок не найден');t.main.bal=0;return{ok:1}}),
 'admin/ban':needAdm((a,b)=>{const t=D.users[b.id];if(!t)return E('Игрок не найден');t.banned=!!b.on;t.banT=b.on&&b.duration?now()+b.duration*(b.unit==='d'?864e5:36e5):0;return{ok:1}}),
 'admin/freeze':needAdm((a,b)=>{const t=D.users[b.id];if(!t)return E('Игрок не найден');t.frozen=!!b.on;return{ok:1}}),
@@ -181,7 +178,6 @@ up:(a,b)=>{const e=chk(a,b.bet);if(e)return e;const{bet,x}=b;if(!(x>=1.58&&x<=90
  D.promos[c]={amount:Math.floor(b.amount),uses:b.uses||0,used:0,exp:b.hours?now()+b.hours*36e5:0};return{code:c}}),
 'admin/promo/list':needAdm(()=>({items:Object.entries(D.promos).map(([code,p])=>({code,amount:p.amount,used:p.used,uses:p.uses,expires:p.exp?new Date(p.exp).toLocaleString('ru-RU'):''}))})),
 'admin/promo/delete':needAdm((a,b)=>{delete D.promos[b.code];return{ok:1}})};
-for(const k of ['cases','case/open','feed','inv','inv/sell','inv/out'])H[k]=()=>E('Кейсы отключены');
 function crPay(a,c,mult){c.pay=Math.floor(c.bet*mult);a.bal+=c.pay;a.wins++;a.best=Math.max(a.best,c.pay);a.won+=c.pay;if(a.m)D.pg.crash-=c.pay}
 H['mines/open']=(a,b)=>{const g=a.mines;if(!g)return E('Нет активной игры');const i=b.i;if(!(i>=0&&i<25)||g.open.includes(i))return E('Клетка уже открыта');
  if(g.set.includes(i)){a.mines=null;fin(a,'mines',g.bet,0,0);return{boom:true,mines:g.set,balance:a.bal}}g.open.push(i);return g.open.length===25-g.m?mEnd(a):{ok:1}};
@@ -246,8 +242,8 @@ async function onUpdate(up){
   dirty=1;return void say(id,'Готово')}
  if(t==='/wd'){const p=D.wd.filter(w=>w.status==='pending');return void say(id,p.length?p.map(w=>`#${w.id} @${w.name} (${w.uid}) — ${w.amount} ★`).join('\n'):'Нет заявок')}
  if((x=t.match(/^\/(done|reject)\s+(\d+)/))){const w=D.wd.find(v=>v.id===+x[2]);if(!w||w.status!=='pending')return void say(id,'Заявка не найдена');
-  if(x[1]==='done'){w.status='done';audit('withdraw_status',getUser(id,m.from.username||m.from.first_name),w.amount,`Выплачена заявка #${w.id} игроку ${w.name} (${w.uid})`);say(w.uid,`✅ Вывод ${w.amount} ★ выплачен`)}
-  else{w.status='rejected';const u=D.users[w.uid];u.main.bal+=w.amount;u.wdn-=w.amount;D.tot.wd-=w.amount;audit('withdraw_status',getUser(id,m.from.username||m.from.first_name),w.amount,`Отклонена заявка #${w.id} игрока ${w.name} (${w.uid})`);say(w.uid,`Заявка на вывод ${w.amount} ★ отклонена, звёзды возвращены`)}
+  if(x[1]==='done'){w.status='done';say(w.uid,`✅ Вывод ${w.amount} ★ выплачен`)}
+  else{w.status='rejected';const u=D.users[w.uid];u.main.bal+=w.amount;u.wdn-=w.amount;D.tot.wd-=w.amount;say(w.uid,`Заявка на вывод ${w.amount} ★ отклонена, звёзды возвращены`)}
   dirty=1;return void say(id,'Готово')}
 }
 async function poll(){let off=0;for(;;){const r=await tg('getUpdates',{offset:off,timeout:25,allowed_updates:['message','pre_checkout_query']});
