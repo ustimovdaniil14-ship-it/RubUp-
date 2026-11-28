@@ -875,7 +875,7 @@ function vCrash(){
  $('view').innerHTML=`${tabs('crash')}<div class="card" style="padding:12px"><div class="chist">${CR.hist.slice(0,9).map(x=>`<b class="${x>=2?'hi':'lo'}">${x.toFixed(2)}x</b>`).join('')}</div>
  <div class="sky" id="sky"><div class="stars"></div><svg class="tr"><polyline id="pl" fill="none" stroke="#f5f5f6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity=".85" style="filter:drop-shadow(0 0 6px #f5f5f688)"/></svg><div class="rk" id="rk">${ROCKET}</div><div class="cm" id="cm"></div><div class="cs" id="cs"></div></div></div>
  <div class="card"><div class="row"><span class="lbl" id="cpt"></span><span class="mu" id="cps"></span></div><div id="cpl"></div></div>
- <div class="card">${betUI('crash')}<div class="inp"><input id="ca" type="number" step="0.1" min="1.01" value="${CR.auto}" oninput="CR.auto=+this.value"><span>x авто-вывод</span></div><button class="go" id="cgo"></button></div>`;cDraw();cBtn();crPl();crLoop()}
+ <div class="card ns">${betUI('crash')}<div class="inp"><input id="ca" type="number" step="0.1" min="1.01" value="${CR.auto}" oninput="CR.auto=+this.value"><span>x авто-вывод</span></div><button class="go" id="cgo"></button></div>`;cDraw();cBtn();crPl();crLoop()}
 function cDraw(){const sk=$('sky');if(!sk)return;const W=sk.clientWidth,H=sk.clientHeight,fl=CR.st=='fly',m=CR.m,q=Math.min(1,Math.log(m)/Math.log(8)),
  x=W*.1+q*W*.72,y=H*.86-Math.pow(q,1.7)*H*.62+(q>=1&&fl?Math.sin(performance.now()/60)*2.5:0),
  th=fl||CR.st=='boom'?Math.atan2(.72*W,1.05*H*Math.pow(Math.max(q,1e-4),.7))*180/Math.PI:40,rk=$('rk');
@@ -923,7 +923,7 @@ function vPlinko(){
  $('view').innerHTML=`${tabs('plinko')}<div class="card" style="padding:10px"><canvas id="pc" style="width:100%;display:block"></canvas>
  <div class="note" style="margin:8px 0 0" id="pn">${PL.res||'Шарик падает по колышкам. Чем ближе к центру — тем меньше множитель'}</div>
  <div class="note" style="margin:4px 0 0">🎯 Шанс выигрыша (x1+): <b style="color:var(--tx)">${(pChance()*100).toFixed(1)}%</b> · возврат игрокам ≈ ${(pRtp()*100).toFixed(0)}%</div></div>
- <div class="card">${betUI('plinko')}<button class="go" id="pgo"></button></div>`;
+ <div class="card ns">${betUI('plinko')}<button class="go" id="pgo"></button></div>`;
  const cv=$('pc'),W=cv.clientWidth||320,sp=W/14,dy=sp*.92,top=16,H=Math.ceil(top+PR*dy+44),dp=window.devicePixelRatio||1;
  cv.width=W*dp;cv.height=H*dp;cv.style.height=H+'px';PL.geo={W,H,sp,dy,top,dp};pDraw(null,[],-1);pBtn()}
 function pBtn(){const g=$('pgo');if(!g)return;g.disabled=PL.on||!(B.plinko>=1);g.onclick=pPlay;g.innerHTML=PL.on?'шарик летит…':`бросить шарик<small>ставка ${fmt(B.plinko)}</small>`}
