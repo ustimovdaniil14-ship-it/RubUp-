@@ -5,7 +5,7 @@ try{for(const l of fs.readFileSync(path.join(__dirname,'.env'),'utf8').split('\n
 const TOKEN=process.env.BOT_TOKEN||'',TGAPI=(()=>{const u=(process.env.API_BASE||'https://api.telegram.org').trim().replace(/\/+$/,'');return /^https?:\/\//i.test(u)?u:'http://'+u})(),
  PORT=+process.env.PORT||3000,
  ADMINS=(process.env.ADMIN_IDS||'').split(',').map(s=>+s.trim()).filter(Boolean),OWNER=ADMINS[0];
-const WMW_=+(process.env.WHEEL_MIN_WAG||0),WCD=Math.round(3600*(+process.env.WHEEL_COOLDOWN_H||24)),MIN_WD=+process.env.MIN_WD||15,WD_LIM=+process.env.WD_LIMIT||35000;
+const WMW_=+(process.env.WHEEL_MIN_WAG||0),WCD=Math.round(3600*(+process.env.WHEEL_COOLDOWN_H||24)),MIN_WD=+process.env.MIN_WD||15,WD_LIM=35000;
 const PAYOUT={method:process.env.PAYOUT_METHOD||'sendStars',params:(()=>{try{return JSON.parse(process.env.PAYOUT_PARAMS||'{"user_id":"{uid}","amount":"{amount}"}')}catch(e){return{}}})()};
 const alertAdm=t=>{if(now()-(alertAdm.t||0)<3e5)return;alertAdm.t=now();for(const id of new Set([OWNER,...ADMINS]))if(id)say(id,t)};
 const fill=(o,v)=>JSON.parse(JSON.stringify(o),(k,x)=>x==='{uid}'?v.uid:x==='{amount}'?v.amount:x);
@@ -28,6 +28,7 @@ let D={},dirty=0,saving=false;
 async function load(){
  await DB.query('create table if not exists kv(k text primary key, v jsonb not null)');
  const r=await DB.query("select v from kv where k='main'");D=r.rows[0]?r.rows[0].v:{};
+ for(const u of Object.values((D.users||{}))){for(const a of [u.main,u.test]){if(a&&a.ladder){a.bal+=a.ladder.bet||0;a.ladder=null;console.log('лесенка удалена: ставка возвращена игроку',u.id)}}}
  D.users=D.users||{};D.promos=D.promos||{};D.wd=D.wd||[];D.paid=D.paid||{};D.pg=D.pg||{};D.day=D.day||{};D.tot=D.tot||{dep:0,wd:0,given:0,wag:0};D.log=D.log||[];}
 async function save(){if(!dirty||saving)return;saving=true;dirty=0;
  try{await DB.query("insert into kv(k,v) values('main',$1) on conflict(k) do update set v=excluded.v",[JSON.stringify(D)])}catch(e){dirty=1;console.error('save',e.message)}saving=false}
@@ -36,10 +37,10 @@ for(const sg of['SIGINT','SIGTERM'])process.on(sg,async()=>{dirty=1;while(saving
 
 const now=()=>Date.now(),dk=()=>new Date().toISOString().slice(0,10),
  rnd=()=>crypto.randomBytes(4).readUInt32BE()/4294967296,ri=n=>Math.floor(rnd()*n),E=m=>({error:m});
-const mk=(b,m)=>({bal:b,wag:0,ups:0,wins:0,best:0,won:0,lost:0,wlAt:0,wdDay:0,wdDate:'',m,mines:null,ladder:null,crash:null,wp:null});
+const mk=(b,m)=>({bal:b,wag:0,ups:0,wins:0,best:0,won:0,lost:0,wlAt:0,wdDay:0,wdDate:'',m,mines:null,crash:null,wp:null});
 const NOTIFY=+process.env.NOTIFY_ID||OWNER,LOG_BIG=+process.env.LOG_BIG||5000;
 let CUR=null; // кто сейчас делает запрос: нужно, чтобы писать крупные игры в журнал
-const GN={up:'Апгрейдер',mines:'Мины',ladder:'Лесенка',plinko:'Плинко',crash:'Ракетка'};
+const GN={up:'Апгрейдер',mines:'Мины',plinko:'Плинко',crash:'Ракетка'};
 const logA=(u,k,text,amt)=>{D.log=D.log||[];D.log.push({t:now(),id:u?u.id:0,name:u?u.name:'система',k,text,amt:amt||0});if(D.log.length>1500)D.log.splice(0,D.log.length-1500);dirty=1};
 const toOwner=t=>{if(NOTIFY)say(NOTIFY,t)}; // сообщения о выводах и подозрительных действиях идут ТОЛЬКО владельцу
 const admLog=(u,text,amt)=>{logA(u,'adm',text,amt);if(u.id!==NOTIFY)toOwner('⚠️ Действие админа @'+u.name+' ('+u.id+'):\n'+text)};
@@ -50,8 +51,10 @@ function wdReport(u,a,n,status,info,before){
  toOwner('💸 ВЫВОД · '+status+'\n@'+u.name+' · ID '+u.id+'\nСумма: '+n+' ★'+(info?'\n'+info:'')+'\nБаланс: '+before+' → '+a.bal+' ★\nСегодня выведено: '+a.wdDay+' из '+WD_LIM+' ★\n\n'+who(u,a));
  logA(u,'wd',status+': '+n+' ★'+(info?' · '+String(info).split('\n')[0]:''),-n)}
 const isAdm=u=>u.id===OWNER||ADMINS.includes(u.id)||!!u.admin,isOwner=u=>u.id===OWNER;
-function getUser(id,name){let u=D.users[id];if(!u){u=D.users[id]={id,name:name||'tg_'+id,main:mk(0,1),test:mk(100000,0),pu:[],admin:false,banned:false,banT:0,frozen:false,t0:now(),seen:now(),dep:0,wdn:0,games:0,d:{}};dirty=1}
- else if(name&&u.name!==name)u.name=name;return u}
+const PHOTO_RE=/^https:\/\/(t\.me|[a-z0-9-]+\.telegram\.org|[a-z0-9-]+\.cdn-telegram\.org|[a-z0-9-]+\.telesco\.pe)\//i; // принимаем только ссылки Telegram
+function getUser(id,name,photo){let u=D.users[id];if(!u){u=D.users[id]={id,name:name||'tg_'+id,photo:'',main:mk(0,1),test:mk(100000,0),pu:[],admin:false,banned:false,banT:0,frozen:false,t0:now(),seen:now(),dep:0,wdn:0,games:0,d:{}};dirty=1}
+ else if(name&&u.name!==name)u.name=name;
+ if(photo!==undefined&&u.photo!==(PHOTO_RE.test(photo||'')?photo:'')){u.photo=PHOTO_RE.test(photo||'')?photo:'';dirty=1}return u}
 const banned=u=>u.banned&&(!u.banT||u.banT>now());
 const dayAdd=(k,v)=>{const d=D.day[dk()]=D.day[dk()]||{};d[k]=(d[k]||0)+v};
 
@@ -72,17 +75,36 @@ function checkInit(init){ // проверка подписи Telegram Mini App; 
  try{return JSON.parse(p.get('user'))}catch(e){return bad('нет user')}}
 
 /* ---------- игровая математика (та же, что в демо) ---------- */
-const PM=[12,4,1.6,1.2,1.1,1.02,.2,1.02,1.1,1.2,1.6,4,12],WH=[5,100,10,50,15,500,20,25];
-const CFG={wheel:WH.map(p=>({p})),wheel_min_wag:WMW_,wd_min:MIN_WD,payout:PAYOUT.method,wd_limit:WD_LIM,support:process.env.SUPPORT||'Techiqqe',botlink:process.env.BOT_LINK||'',up_edge:.9,up_top:.57,up_low:.01,up_min_x:1.58,up_max_x:90,mines_edge:.97,ladder_edge:.97,mines_win:null,max_bet:50000,ladder_rows:8,plinko:PM};
+/* ================== ШАНСЫ ==================
+   Все вероятности игры лежат здесь и больше нигде. Клиент получает их из cfg, поэтому
+   шанс, который видит игрок на экране, всегда равен настоящему шансу на сервере.
+   Любое значение можно переопределить переменной окружения (Render → Environment). */
+const num=(k,d)=>{const v=parseFloat(process.env[k]);return Number.isFinite(v)?v:d},edge=(k,d)=>Math.min(1,Math.max(.5,num(k,d)));
+const ODDS={
+ upEdge:edge('UP_EDGE',.9),          // Апгрейдер: шанс победы = UP_EDGE / множитель (возврат игрокам 90%)
+ upTop:num('UP_TOP_CHANCE',.57),     // максимальный шанс (определяет минимальный множитель)
+ upLow:num('UP_LOW_CHANCE',.01),     // минимальный шанс (определяет максимальный множитель)
+ minesEdge:edge('MINES_EDGE',.97),   // Мины: возврат 97%
+ crashEdge:edge('CRASH_EDGE',.97),   // Ракетка: возврат 97%, точка краха = CRASH_EDGE / (1 - случайное)
+ maxBet:Math.max(1,Math.floor(num('MAX_BET',50000))),
+ plinko:[12,4,1.6,1.2,1.1,1.02,.2,1.02,1.1,1.2,1.6,4,12], // множители по лункам слева направо
+ wheel:[{p:5,w:12},{p:100,w:3},{p:10,w:12},{p:50,w:6},{p:15,w:12},{p:500,w:1},{p:20,w:12},{p:25,w:12}] // p — приз ★, w — вес выпадения
+};
+ODDS.upMinX=Math.ceil(ODDS.upEdge/ODDS.upTop*100)/100;ODDS.upMaxX=Math.floor(ODDS.upEdge/ODDS.upLow*100)/100;
+const PM=ODDS.plinko;
+const CFG={wheel:ODDS.wheel.map(x=>({p:x.p})),wheel_min_wag:WMW_,wd_min:MIN_WD,payout:PAYOUT.method,wd_limit:WD_LIM,support:process.env.SUPPORT||'Techiqqe',botlink:process.env.BOT_LINK||'',
+ up_edge:ODDS.upEdge,up_top:ODDS.upTop,up_low:ODDS.upLow,up_min_x:ODDS.upMinX,up_max_x:ODDS.upMaxX,mines_edge:ODDS.minesEdge,mines_win:null,max_bet:ODDS.maxBet,plinko:PM};
 const left=a=>Math.max(0,Math.ceil((a.wlAt-now())/1000));
-const chk=(a,b)=>!(b>=1)?E('Укажите ставку'):b>a.bal?E('Недостаточно звёзд'):b>50000?E('Макс. ставка 50 000 ★'):0;
-function fin(a,g,bet,pay,win){a.wag+=bet;a.won+=pay;a.lost+=bet;if(win)a.wins++;a.best=Math.max(a.best,pay);
+const chk=(a,b)=>!(b>=1)?E('Укажите ставку'):b>a.bal?E('Недостаточно звёзд'):b>ODDS.maxBet?E('Макс. ставка '+ODDS.maxBet.toLocaleString('ru-RU')+' ★'):0;
+function fin(a,g,bet,pay,win){if(a.m&&g!=='crash'&&CUR)feedAdd(CUR,g,bet,pay);a.wag+=bet;a.won+=pay;a.lost+=bet;if(win)a.wins++;a.best=Math.max(a.best,pay);
  if(a.m){D.pg[g]=(D.pg[g]||0)+bet-pay;D.tot.wag+=bet;dayAdd('wag',bet);if(CUR&&(bet>=LOG_BIG||pay>=LOG_BIG*2))logA(CUR,'game',(GN[g]||g)+': ставка '+bet+(g==='crash'?'':' → выплата '+pay)+' ★',g==='crash'?-bet:pay-bet)}}
 const pick=(n,k)=>{const x=[...Array(n).keys()];for(let i=n-1;i>0;i--){const j=ri(i+1);[x[i],x[j]]=[x[j],x[i]]}return x.slice(0,k)};
-const mM=(n,m)=>{let r=.97;for(let i=0;i<n;i++)r*=(25-i)/(25-m-i);return r},lM=(n,c)=>.97*Math.pow(c/(c-1),n);
+const mM=(n,m)=>{let r=ODDS.minesEdge;for(let i=0;i<n;i++)r*=(25-i)/(25-m-i);return r};
 const mEnd=a=>{const g=a.mines,mult=mM(g.open.length,g.m),pay=Math.floor(g.bet*mult);a.bal+=pay;fin(a,'mines',g.bet,pay,1);a.mines=null;return{payout:pay,mult,mines:g.set,balance:a.bal}};
-const lEnd=a=>{const g=a.ladder,mult=lM(g.picks.length,g.c),pay=Math.floor(g.bet*mult);a.bal+=pay;fin(a,'ladder',g.bet,pay,1);a.ladder=null;return{payout:pay,mult,traps:g.traps,balance:a.bal}};
 const cm=c=>Math.exp(.15*Math.max(0,now()-c.t0)/1000);
+const FEED=[];const mask=n=>{n=String(n||'игрок').replace(/^@/,'');return n.slice(0,2)+'***'};
+const feedAdd=(u,g,bet,pay)=>{if(!u||!(pay>bet))return;FEED.unshift({n:String(u.name||'игрок').replace(/^@/,''),g:GN[g]||g,b:bet,p:pay,w:pay>bet?1:0,x:bet?Math.round(pay/bet*100)/100:0,t:now()});if(FEED.length>40)FEED.length=40};
+const LIVE=[];const liveAdd=(u,pay,x)=>{LIVE.unshift({pay,x:Math.round(x*100)/100,id:u?u.id:0,t:now()});if(LIVE.length>30)LIVE.length=30};
 const online=()=>Object.values(D.users).filter(u=>now()-u.seen<3e5).length;
 const find=q=>{q=String(q||'').replace('@','').trim().toLowerCase();return Object.values(D.users).find(x=>String(x.id)===q||x.name.toLowerCase()===q)};
 const view=u=>({id:u.id,name:u.name,balance:u.main.bal,wag:u.main.wag,ups:u.main.ups,best:u.main.best,admin:isAdm(u),banned:banned(u),frozen:u.frozen,
@@ -91,10 +113,10 @@ const sumDay=(k,n=1)=>{let s=0;for(let i=0;i<n;i++){const d=D.day[new Date(now()
 const needAdm=f=>(a,b,u,q)=>isAdm(u)?f(a,b,u,q):E('Недоступно'),needOwn=f=>(a,b,u,q)=>isOwner(u)?f(a,b,u,q):E('Недоступно');
 
 const H={
-state:(a,b,u)=>({admin:isAdm(u),owner:isOwner(u),balance:a.bal,wag:a.wag,ups:a.ups,wins:a.wins,best:a.best,id:u.id,name:u.name,wheel_left:left(a),wd_left:Math.max(0,WD_LIM-(a.wdDate===dk()?a.wdDay:0)),online:online(),cfg:CFG,
- mines:a.mines&&{m:a.mines.m,bet:a.mines.bet,open:a.mines.open},ladder:a.ladder&&{c:a.ladder.c,bet:a.ladder.bet,picks:a.ladder.picks}}),
+state:(a,b,u)=>({photo:u.photo||'',admin:isAdm(u),owner:isOwner(u),balance:a.bal,wag:a.wag,ups:a.ups,wins:a.wins,best:a.best,id:u.id,name:u.name,wheel_left:left(a),wd_left:Math.max(0,WD_LIM-(a.wdDate===dk()?a.wdDay:0)),online:online(),cfg:CFG,
+ mines:a.mines&&{m:a.mines.m,bet:a.mines.bet,open:a.mines.open}}),
 sync:(a,b,u)=>({balance:a.bal-(a.wp&&now()<a.wp.t?a.wp.v:0),wag:a.wag,ups:a.ups,wins:a.wins,best:a.best,online:online(),admin:isAdm(u),owner:isOwner(u)}),
-top:(a,b,u,q)=>{const day=/p=day/.test(q),t=dk();return{top:Object.values(D.users).map(x=>({name:x.name,wag:day?(x.d[t]||0):Object.values(x.d).reduce((s,v)=>s+v,0)})).filter(x=>x.wag>0).sort((x,y)=>y.wag-x.wag).slice(0,10)}},
+top:(a,b,u,q)=>{const day=/p=day/.test(q),t=dk();return{top:Object.values(D.users).map(x=>({name:x.name,photo:x.photo||'',wag:day?(x.d[t]||0):Object.values(x.d).reduce((s,v)=>s+v,0)})).filter(x=>x.wag>0).sort((x,y)=>y.wag-x.wag).slice(0,10)}},
 async deposit(a,b,u){const n=Math.floor(b.amount);if(!(n>=1&&n<=1e6))return E('Сумма от 1 до 1 000 000 ★');
  if(!a.m){a.bal+=n;return{balance:a.bal,amount:n,test:1}}
  const inv={title:'Пополнение RubUp',description:n+' ★ на игровой баланс',payload:'dep:'+u.id+':'+n,provider_token:'',currency:'XTR',prices:[{label:'★',amount:n}]};
@@ -121,31 +143,22 @@ async withdraw(a,b,u){const n=Math.floor(b.amount);if(!(n>=1))return E('Введ
  D.wd.push(w);u.wdn+=n;D.tot.wd+=n;dayAdd('wd',n);
  wdReport(u,a,n,'заявка #'+w.id+' ждёт выплаты',(why?'автовывод не сработал: '+why+'\n':'')+'/done '+w.id+' — выплачено · /reject '+w.id+' — вернуть на баланс',b0);
  return{balance:a.bal,pending:1}},
+feed:()=>({items:FEED.slice(0,20)}),
+ live:(a,b,u)=>({items:LIVE.slice(0,14).map(o=>({pay:o.pay,x:o.x,me:o.id===u.id?1:0}))}),
 ops:(a,b,u)=>{if(!a.m)return{items:[]};const it=[...(u.ops||[]).map(o=>({k:'dep',n:o.n,t:o.t,s:'done'})),...D.wd.filter(w=>w.uid===u.id).slice(-20).map(w=>({k:'wd',n:w.amount,t:w.ts,s:w.status}))].sort((x,y)=>y.t-x.t).slice(0,25);return{items:it}},
 'promo/use':(a,b,u)=>{const c=String(b.code||'').trim().toUpperCase(),p=D.promos[c];if(!p)return E('Промокод не найден');if(u.pu.includes(c))return E('Вы уже активировали этот промокод');
  if(p.uses&&p.used>=p.uses)return E('Лимит активаций исчерпан');if(p.exp&&p.exp<now())return E('Срок промокода истёк');p.used++;u.pu.push(c);a.bal+=p.amount;if(a.m){D.tot.given+=p.amount;(u.src=u.src||{}).promo=(u.src.promo||0)+p.amount;logA(u,'bonus','промокод '+c+': +'+p.amount+' ★',p.amount)}return{balance:a.bal,amount:p.amount}},
 'wheel/spin':(a,b,u)=>{if(a.wag<WMW_)return E('Сыграйте ещё на '+(WMW_-a.wag)+' ★');if(left(a)>0)return E('Рано, подождите');
- const w=WH.map(p=>p>=500?1:p>=100?3:p>=50?6:12);let r=rnd()*w.reduce((x,y)=>x+y),idx=0;while(r>=w[idx]){r-=w[idx];idx++}
- const prize=WH[idx];a.bal+=prize;a.wlAt=now()+WCD*1000;a.wp={v:prize,t:now()+5400};if(a.m){D.tot.given+=prize;(u.src=u.src||{}).wheel=(u.src.wheel||0)+prize;logA(u,'bonus','колесо удачи: +'+prize+' ★',prize)}return{idx,prize,balance:a.bal,left:WCD}},
-up:(a,b)=>{const e=chk(a,b.bet);if(e)return e;const{bet,x}=b;if(!(x>=1.58&&x<=90))return E('Неверный множитель');
- const r=rnd(),win=r<.9/x,pay=win?Math.floor(bet*x):0;a.bal+=pay-bet;a.ups++;fin(a,'up',bet,pay,win);return{r,win,pay,balance:a.bal}},
+ const w=ODDS.wheel.map(x=>x.w);let r=rnd()*w.reduce((x,y)=>x+y),idx=0;while(r>=w[idx]){r-=w[idx];idx++}
+ const prize=ODDS.wheel[idx].p;a.bal+=prize;a.wlAt=now()+WCD*1000;a.wp={v:prize,t:now()+5400};if(a.m){D.tot.given+=prize;(u.src=u.src||{}).wheel=(u.src.wheel||0)+prize;logA(u,'bonus','колесо удачи: +'+prize+' ★',prize)}return{idx,prize,balance:a.bal,left:WCD}},
+up:(a,b)=>{const e=chk(a,b.bet);if(e)return e;const{bet,x}=b;if(!(x>=ODDS.upMinX&&x<=ODDS.upMaxX))return E('Неверный множитель');
+ const r=rnd(),win=r<ODDS.upEdge/x,pay=win?Math.floor(bet*x):0;a.bal+=pay-bet;a.ups++;fin(a,'up',bet,pay,win);
+ if(win&&a.m)liveAdd(CUR,pay,x);return{r,win,pay,balance:a.bal}},
 'mines/start':(a,b)=>{const e=chk(a,b.bet);if(e)return e;if(a.mines)return E('Раунд уже идёт');if(![1,3,5,10,20].includes(b.mines))return E('Неверное число мин');
  a.bal-=b.bet;a.mines={m:b.mines,bet:b.bet,open:[],set:pick(25,b.mines)};return{balance:a.bal}},
 'mines/cashout':a=>a.mines&&a.mines.open.length?mEnd(a):E('Нечего забирать'),
-'ladder/start':(a,b)=>{const e=chk(a,b.bet);if(e)return e;if(a.ladder)return E('Раунд уже идёт');if(![2,3,4].includes(b.c))return E('Неверный режим');
- a.bal-=b.bet;a.ladder={c:b.c,bet:b.bet,picks:[],traps:Array.from({length:8},()=>ri(b.c))};return{balance:a.bal}},
-'ladder/pick':(a,b)=>{const g=a.ladder;if(!g)return E('Нет активной игры');const r=g.picks.length;if(!(b.i>=0&&b.i<g.c))return E('Неверная клетка');
- if(g.traps[r]===b.i){a.ladder=null;fin(a,'ladder',g.bet,0,0);return{boom:true,traps:g.traps,balance:a.bal}}g.picks.push(b.i);return g.picks.length===8?lEnd(a):{ok:1}},
-'ladder/cashout':a=>a.ladder&&a.ladder.picks.length?lEnd(a):E('Нечего забирать'),
 'plinko/play':(a,b)=>{const e=chk(a,b.bet);if(e)return e;const path=Array.from({length:12},()=>ri(2)),mult=PM[path.reduce((x,y)=>x+y,0)],pay=Math.floor(b.bet*mult);
  a.bal+=pay-b.bet;fin(a,'plinko',b.bet,pay,mult>1);return{path,mult,payout:pay,balance:a.bal}},
-'crash/start':(a,b)=>{const e=chk(a,b.bet);if(e)return e;if(a.crash)return E('Раунд уже идёт');a.bal-=b.bet;const au=+b.auto;
- a.crash={bet:b.bet,auto:au>=1.01?au:0,cp:Math.min(1000,Math.max(1,Math.floor(97/(1-rnd()))/100)),t0:now()+2100,pay:0};fin(a,'crash',b.bet,0,0);return{balance:a.bal}},
-'crash/status':a=>{const c=a.crash;if(!c)return E('Нет игры');const m=cm(c);
- if(!c.pay&&c.auto&&c.auto<=m&&c.auto<c.cp)crPay(a,c,c.auto);
- const crashed=m>=c.cp,o={cashed:c.pay,balance:a.bal,crashed,cp:c.cp,m};if(crashed)a.crash=null;return o},
-'crash/cash':a=>{const c=a.crash;if(!c)return E('Нет игры');if(c.pay)return{pay:c.pay,mult:c.pay/c.bet,balance:a.bal};const m=cm(c);
- if(m>=c.cp){a.crash=null;return{crashed:true,cp:c.cp}}const mult=Math.floor(m*100)/100;crPay(a,c,mult);return{pay:c.pay,mult,balance:a.bal}},
 /* --- админка --- */
 'admin/stats':needAdm(()=>{const us=Object.values(D.users),pg=Object.fromEntries(Object.entries(D.pg).map(([k,v])=>[k,Math.round(v)])),pend=D.wd.filter(w=>w.status==='pending');
  return{users:us.length,online:online(),new24:us.filter(x=>now()-x.t0<864e5).length,wag24:sumDay('wag'),bot:0,debt:us.reduce((s,x)=>s+x.main.bal,0),dep_total:D.tot.dep,dep24:sumDay('dep'),
@@ -176,7 +189,31 @@ up:(a,b)=>{const e=chk(a,b.bet);if(e)return e;const{bet,x}=b;if(!(x>=1.58&&x<=90
 function crPay(a,c,mult){c.pay=Math.floor(c.bet*mult);a.bal+=c.pay;a.wins++;a.best=Math.max(a.best,c.pay);a.won+=c.pay;if(a.m){D.pg.crash-=c.pay;if(CUR&&c.pay>=LOG_BIG*2)logA(CUR,'game','Ракетка: выигрыш '+c.pay+' ★ (×'+mult.toFixed(2)+')',c.pay)}}
 H['mines/open']=(a,b)=>{const g=a.mines;if(!g)return E('Нет активной игры');const i=b.i;if(!(i>=0&&i<25)||g.open.includes(i))return E('Клетка уже открыта');
  if(g.set.includes(i)){a.mines=null;fin(a,'mines',g.bet,0,0);return{boom:true,mines:g.set,balance:a.bal}}g.open.push(i);return g.open.length===25-g.m?mEnd(a):{ok:1}};
-const GAMES=/^(up|mines\/|ladder\/|plinko|crash\/start|wheel)/;
+
+/* ---------- Ракетка: один общий раунд для всех игроков ---------- */
+const CRG={id:0,st:'wait',t0:0,t1:0,tb:0,cp:1,bets:{},hist:[]};
+const CR_WAIT=8000,CR_BOOM=3500;
+function crNew(){CRG.id++;CRG.st='wait';CRG.bets={};CRG.t1=now()+CR_WAIT;CRG.cp=Math.min(1000,Math.max(1,Math.floor(ODDS.crashEdge*100/(1-rnd()))/100))}
+function crWin(p,mult){const o=CUR;CUR=p.u;crPay(p.a,p.c,mult);CUR=o;p.a.crash=null;if(p.a.m)feedAdd(p.u,'crash',p.c.bet,p.c.pay);dirty=1}
+function crTick(){const g=CRG,t=now();
+ if(g.st==='wait'&&t>=g.t1){g.st='fly';g.t0=t}
+ if(g.st==='fly'){const m=cm(g);
+  for(const p of Object.values(g.bets))if(!p.c.pay&&p.c.auto&&p.c.auto<=m&&p.c.auto<g.cp)crWin(p,p.c.auto);
+  if(m>=g.cp){g.st='boom';g.tb=t;g.hist.unshift(g.cp);if(g.hist.length>12)g.hist.length=12;
+   for(const p of Object.values(g.bets))if(!p.c.pay){p.a.crash=null;if(p.a.m)feedAdd(p.u,'crash',p.c.bet,0)}dirty=1}}
+ else if(g.st==='boom'&&t>=g.tb+CR_BOOM)crNew()}
+function crBoot(){for(const u of Object.values(D.users))for(const a of [u.main,u.test])if(a&&a.crash){a.bal+=a.crash.bet;a.crash=null;dirty=1}crNew();setInterval(crTick,100)}
+const crKey=(a,u)=>a.m?u.id:'t'+u.id;
+H['crash/bet']=(a,b,u)=>{const g=CRG,k=crKey(a,u),e=chk(a,b.bet);if(e)return e;if(g.st!=='wait')return E('Ставки закрыты — дождитесь следующего раунда');if(g.bets[k])return E('Вы уже сделали ставку');
+ const au=+b.auto,c={bet:b.bet,auto:au>=1.01?au:0,pay:0};a.bal-=b.bet;a.crash={bet:b.bet,rid:g.id};g.bets[k]={u,a,c};fin(a,'crash',b.bet,0,0);return{balance:a.bal}};
+H['crash/state']=(a,b,u)=>{const g=CRG,p=g.bets[crKey(a,u)],t=now(),m=g.st==='fly'?Math.min(cm(g),g.cp):g.st==='boom'?g.cp:1;
+ const ps=Object.values(g.bets).filter(x=>!!x.a.m===!!a.m).sort((x,y)=>y.c.bet-x.c.bet);
+ return{id:g.id,st:g.st,m,cd:g.st==='wait'?Math.max(0,Math.ceil((g.t1-t)/1000)):0,cp:g.st==='boom'?g.cp:0,hist:g.hist,cnt:ps.length,sum:ps.reduce((q,x)=>q+x.c.bet,0),
+  players:ps.slice(0,12).map(x=>({n:x.u.id===u.id?'Вы':mask(x.u.name),bet:x.c.bet,pay:x.c.pay})),
+  my:p?{bet:p.c.bet,pay:p.c.pay,auto:p.c.auto}:null,balance:a.bal}};
+H['crash/cash']=(a,b,u)=>{const g=CRG,p=g.bets[crKey(a,u)];if(!p)return E('У вас нет ставки');if(p.c.pay)return{pay:p.c.pay,mult:p.c.pay/p.c.bet,balance:a.bal};if(g.st!=='fly')return E('Раунд не идёт');
+ const m=cm(g);if(m>=g.cp)return{crashed:true,cp:g.cp};const mult=Math.floor(m*100)/100;crWin(p,mult);return{pay:p.c.pay,mult,balance:a.bal}};
+const GAMES=/^(up|mines\/|plinko|crash\/bet|wheel)/;
 
 /* ---------- HTTP ---------- */
 const readBody=req=>new Promise(r=>{let s='';req.on('data',c=>{s+=c;if(s.length>1e5)req.destroy()});req.on('end',()=>{try{r(JSON.parse(s||'{}'))}catch(e){r({})}})});
@@ -188,10 +225,10 @@ const server=http.createServer(async(req,res)=>{
   if(req.method!=='POST'||!req.url.startsWith('/api/'))return send(res,404,E('not found'));
   const q=req.url.slice(5),k=q.split('?')[0],h=H[k];if(!h)return send(res,404,E('Неизвестный метод'));
   const tu=checkInit(req.headers['x-init']||'');if(!tu){console.log('auth fail:',checkInit.why,'| init длина',(req.headers['x-init']||'').length);return send(res,401,E('Откройте через Telegram ('+checkInit.why+')'))}
-  const u=getUser(tu.id,tu.username||tu.first_name||'');u.seen=now();
+  const u=getUser(tu.id,tu.username||tu.first_name||'',tu.photo_url||'');u.seen=now();
   if(banned(u))return send(res,200,E('Аккаунт заблокирован'));
   const a=(req.headers['x-test']==='1'&&isAdm(u))?u.test:u.main;
-  const bd=await readBody(req);CUR=u;const out=await h(a,bd,u,q);CUR=null;if(GAMES.test(k)&&out&&!out.error)u.games++;
+  const bd=await readBody(req);if('bet' in bd)bd.bet=Math.floor(+bd.bet)||0;if('x' in bd)bd.x=+bd.x;CUR=u;const out=await h(a,bd,u,q);CUR=null;if(GAMES.test(k)&&out&&!out.error)u.games++;
   if(a.m&&a.wag!==a._w){const w=a.wag-(a._w||0);if(w>0)u.d[dk()]=(u.d[dk()]||0)+w;a._w=a.wag;const ks=Object.keys(u.d).sort();while(ks.length>7)delete u.d[ks.shift()]}
   dirty=1;send(res,200,out);
  }catch(e){console.error(hide(e&&e.stack||e));send(res,500,E('Ошибка сервера'))}
@@ -244,7 +281,7 @@ async function onUpdate(up){
 async function poll(){let off=0;for(;;){const r=await tg('getUpdates',{offset:off,timeout:25,allowed_updates:['message','pre_checkout_query']});
  if(!r.ok){await new Promise(x=>setTimeout(x,3000));continue}for(const up of r.result){off=up.update_id+1;try{await onUpdate(up)}catch(e){console.error(e)}}}}
 load().then(()=>{if(!process.env.PAYOUT_PARAMS&&D.payoutParams)PAYOUT.params=D.payoutParams;
- server.listen(PORT,'0.0.0.0',async()=>{console.log('RubUp на порту '+PORT);tg('getMe',{}).then(r=>{if(r.ok&&r.result)CFG.bot=r.result.username});
+ server.listen(PORT,'0.0.0.0',async()=>{console.log('RubUp на порту '+PORT);crBoot();tg('getMe',{}).then(r=>{if(r.ok&&r.result)CFG.bot=r.result.username});
   if(!BASE)return console.log('Нет WEBAPP_URL — webhook не установлен');
   const r=await tg('setWebhook',{url:BASE+HOOK,allowed_updates:['message','pre_checkout_query']});console.log('webhook:',r.ok,r.description||'');
   if(!r.ok){console.log('webhook не вышел — включаю polling');await tg('deleteWebhook');poll()}
