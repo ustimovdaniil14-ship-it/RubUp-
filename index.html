@@ -142,6 +142,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 
 /* нижний блок управления ставкой в остальных играх (последняя карточка экрана) */
 #view>.card:last-child{margin-top:4px;background:var(--c1);border-color:var(--bd2)}
+#view>.card.ns:last-child{position:static!important;box-shadow:none!important}
 @media (min-height:780px){#view>.card:last-child{position:sticky;bottom:calc(var(--nav) + var(--sb) + 8px);z-index:4;box-shadow:0 -16px 28px -12px #000}}
 
 /* мины и лесенка */
@@ -805,9 +806,9 @@ function vMines(){
  for(let i=0;i<25;i++){const o=MN.open.includes(i),bm=MN.mines.includes(i),nw=i==MN.last?' new':'';let c='mt',h='';
   if(o||end){if(bm){c+=' b'+nw;h='💣'}else{c+=' g'+(o?nw:' dim');h='💎'}}
   g+=`<button class="${c}" ${a&&!o?`onclick="mOpen(${i})"`:'disabled'}>${h}</button>`}
- $('view').innerHTML=`${tabs('mines')}<div class="card"><div class="row" style="margin-bottom:10px"><span class="mu">Следующий ход: <b style="color:var(--tx)">x${nx.toFixed(2)}</b></span><span class="mu">Сейчас: <b style="color:var(--ok)">x${cur.toFixed(2)}</b></span></div>
+ $('view').innerHTML=`${tabs('mines')}<div class="card"><div class="row" style="margin-bottom:10px"><span class="mu">Следующий ход: <b style="color:var(--tx)">x${nx.toFixed(2)}</b></span><span class="mu">Сейчас: <b style="color:var(--ok)">${MN.n?'x'+cur.toFixed(2):'—'}</b></span></div>
  <div class="mg">${g}</div>${MWIN==null?'':`<div class="note" style="margin:0 0 6px">🎯 Шанс выигрыша раунда: <b style="color:var(--tx)">${Math.round(MWIN*100)}%</b></div>`}<div class="note">${MN.res||(a?'Открывайте клетки, не попадите на мину':'💎 — алмаз, 💣 — мина. Забирайте выигрыш в любой момент')}</div></div>
- <div class="card"><div style="${a?'pointer-events:none;opacity:.5':''}">${betUI('mines')}
+ <div class="card ns"><div style="${a?'pointer-events:none;opacity:.5':''}">${betUI('mines')}
  <div class="row" style="margin-top:16px"><span class="lbl">мин</span><span class="mu" id="mch"></span></div>
  <div class="xs">${[1,3,5,10,20].map(m=>`<button class="${MN.m==m?'on':''}" onclick="mSet(${m})">${m}</button>`).join('')}</div></div>
  <button class="go" id="mgo"></button></div>`;mBtn()}
